@@ -1,0 +1,40 @@
+o SmartOPS QUEUE.',path1,cc='shubhamsunil.payghan@aig.com')
+#     # send_mail(['tushar.goyal@aig.com'],f'SmartOPS - New and In progress Incidents and Service Requests for SOP Mapping {timestamp}','<h4>Please find attached tickets in "New" and "In Progress" status for SmartOPS onboarded applications.</h4><br> Please refer to <b>column H</b> for Diagnostic SOP found (If any) and <b>column I</b> for any action required for reassignment of ticket to SmartOPS QUEUE.',path1,path2)
+ 
+#     timestamp_end = time.time()
+#     print('Time required for execution : ',timestamp_end - timestamp_start)
+#     time.sleep(3420)
+ 
+ 
+ 
+ 
+#call this function in main.py
+def main(data):
+    
+ 
+        boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5=test_incident(data)
+        
+        rsop_value = get_rsop(boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5)
+        print("RSOP value is:")
+        print(rsop_value)
+ 
+        rsop_list = list(SOP_Filtering.find({"GEARID":4981,'FilteredDiagnosticSOPID':"4981_CYBER_PORTAL_UNABLE_TO_PROCESS_DSOP"},{"_id":0}))
+ 
+ 
+        for rsop in rsop_list:
+            if rsop["ResolutionSOPID"] == rsop_value:
+                rsop["highlight"]= "True"
+            
+                rsop_found = list(SOP_Filtering.find({"GEARID":4981,'ResolutionSOPID':rsop_value},{"_id":0}))
+ 
+ 
+                save_rsop_to_excel(rsop_found)
+        
+            else:
+                rsop["highlight"]= "False"
+        
+        print(rsop_found)
+        return rsop_found,[]
+ 
+    
+ 
