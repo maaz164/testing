@@ -1,23 +1,30 @@
+import pandas as pd
+from pandas.io import excel 
+import win32com.client as win32
+from datetime import datetime 
+import enum
 import re
-import cx_Oracle
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support import expected_conditions as EC 
 from selenium.webdriver.chrome.options import Options
 import time
-import pyodbc
-import os
-from pymongo import MongoClient
 from config import SOP_Filtering
-from selenium.webdriver.common.alert import Alert
-import pandas as pd
-import win32com.client as win32
-
+ 
+ 
 def test_incident(data):
+    print(data)
+    boundary_cond1='N'
+    boundary_cond2='N'
+    boundary_cond3='N'
+    boundary_cond4='Invalid'
+    boundary_cond5='N'
+    
     try:
-        incident_number = data["incidentNo"]
+        
+        incident_number = data["incident_no"]
         options = Options()
         options.add_argument("--window-size=1920,1080")
         driver = webdriver.Chrome(options=options)
@@ -26,201 +33,245 @@ def test_incident(data):
         driver.get(url)
         time.sleep(10)
         print(f"Navigated to incident number: {incident_number}")
-
+ 
+        # For fetching the description part of incident ticket    
         WebDriverWait(driver, 80).until(
             EC.presence_of_element_located((By.ID, "gsft_main"))
         )
-        driver.switch_to.frame("gsft_main")  
-        print("found")
-
+        driver.switch_to.frame("gsft_main")  # Switching to iframe id="gsft_main"
+        print("Found")
         WebDriverWait(driver, 80).until(
             EC.presence_of_element_located((By.ID, "incident.description"))
         )
         description_element = driver.find_element(By.ID, "incident.description")
         textarea_value = description_element.get_attribute("value")
-        print("Description:", textarea_value)
-
-        scenario_id_pattern = r"SCENARIO_ID\s*=\s*(\d+)"
-        match = re.search(scenario_id_pattern, textarea_value)
-       
-        if match:
-            scenario_id = match.group(1)
-            print(f"Found SCENARIO_ID: {scenario_id}")
-
-            table1_data, table2_data = execute_sql_query(scenario_id)
-           
+        print("description",textarea_value)
+ 
+        # Validating DNB Number
+        dnb_number = re.findall(r'DNB:\s*(\d+)', textarea_value)
+        boundary_cond1 = "Y" if dnb_number else "N"
+        if dnb_number:
+            print(f"DNB Nuber Found:{dnb_number[0]}")
         else:
-            print("No SCENARIO_ID found in the description.")
-            # Prompt the user for SCENARIO_ID
-            driver.execute_script("alert('Please enter the SCENARIO_ID');")
-            alert = Alert(driver)
-            scenario_id = alert.text
-            alert.accept()
-            print(f"User provided SCENARIO_ID: {scenario_id}")
-            table1_data, table2_data = execute_sql_query(scenario_id)
-
-        # Save table1_data to an Excel file
-        save_to_excel(table1_data, "table1_data.xlsx")
-
-        # Send the Excel file via email
-        subject = "Table1 Data"
-        body = "Please find the attached file containing Table1 data."
-        to = "Shubhamsunil.Payghan@aig.com"
-        attachment_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\table1_data.xlsx"
-        send_email_with_attachment(subject, body, to, attachment_path)
-
+            print("No DNB number found in the Description")
+        
+ 
+        #Validating Account Name 
+        boundary_cond2 = "Y" if "Account Name" in textarea_value else "N"
+        print(f"Boundary Condition 2:{boundary_cond2}")
+ 
+        #Validating Domain
+        domain_match = re.findall(r"Domain:\s*([\w\.-]+\.\w+)",textarea_value)
+        boundary_cond3 = "Y" if domain_match else "N"
+        domain = domain_match[0] if domain_match else None
+        print(f"Boundary Condition 3:{boundary_cond3},Domain:{domain}")
+        formatted_domain = f"www.{domain}"
+        
+        if formatted_domain:
+                driver.switch_to.new_window('tab')
+                driver.get(f"https://{formatted_domain}")
+                time.sleep(3)
+ 
+        current_url = driver.current_url
+        print(f"Current URL after navigation:{current_url}")
+        if current_url.startswith("https://") or current_url.startswith("http://"):
+            if current_url.rstrip("/") == f"https://{formatted_domain}".rstrip("/"):
+                boundary_cond4 = "Valid"
+            elif current_url != f"https://{formatted_domain}":
+                boundary_cond4 = "Redirecting"
+            else:
+                 boundary_cond4 = "Invalid"  
+        else:
+            boundary_cond4 = "Invalid"
+            print(f"Boundary Condition 4 : {boundary_cond4}")  
+       
+ 
+        print(f"Navigated to: {formatted_domain}")  
+        print(f"Valid domain found: {domain}")
+        time.sleep(3)
+ 
+        driver.switch_to.new_window('tab')
+        cyber_portal_url = "https://cyberportal.apps.puse1-pcf.gi.pubcloud.aig.net/"
+        driver.get(cyber_portal_url)
+        print(f"Navigated to cyber portal: {cyber_portal_url}")
+        time.sleep(3)
+ 
+        duns_button = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.XPATH, "//li[@role='tab' and @aria-posinset='4']"))
+        )
+        duns_button.click()
+        print("Clicked on DUNS button")
+        time.sleep(2)
+        duns_input = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.ID, "searchDuns"))
+        )
+        duns_input.send_keys(dnb_number)
+        print(f"Entered DNB Number: {dnb_number}")
+ 
+        search_button = driver.find_element(By.ID, "app_search_byDunsNo")
+        search_button.click()
+        print("Clicked on Search button")
+        time.sleep(3)
+ 
+        account_name_link = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.ID, "app_searchResults_acountBySubNoNme0"))
+        )
+        account_name_link.click()
+        print("Clicked on Account name link")
+        time.sleep(5)
+        try:
+            go_to_account_button = WebDriverWait(driver,5).until(
+                EC.presence_of_element_located((By.ID,"app_searchResults_goToSelectAccDetails0"))
+            )
+            go_to_account_button.click()
+            print("Clicked on 'Go to Selected Account' button in the popup")
+        except Exception as e:
+            print("No Popup Appeard.Continuing....")    
+ 
+        osia_tab = WebDriverWait(driver, 30).until(
+            EC.element_to_be_clickable((By.ID, "app_accountOvervw_openSource"))
+        )
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", osia_tab)
+        print("Scrolled to Open Source Intelligent Assessment tab.")
+        osia_tab.click()
+        print("Clicked on Open Source Intelligent Assessment Tab")
+        time.sleep(3)
+ 
+        verify_button = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.XPATH, "//button[contains(text(),'Verify') or contains(text(),'Re-verify')]"))
+        )
+        button_text = verify_button.text.strip()
+        print(f"Button found with text: {button_text}")
+ 
+        if button_text == "Re-verify":
+            verify_button.click()
+            print("Clicked on Re-verify Button")
+            time.sleep(2)
+ 
+            calender_icon = WebDriverWait(driver, 30).until(
+                EC.element_to_be_clickable((By.XPATH, "//input[@type='date']//following-sibling::button"))
+            )    
+            calender_icon.click()
+            print("Clicked on calendar Icon")
+            time.sleep(2)
+ 
+            date_picker = WebDriverWait(driver, 30).until(
+                EC.element_to_be_clickable((By.XPATH, "//td[@class='available' and text()='15']"))
+            )
+            date_picker.click()
+            print("Selected a date from a calendar")
+            time.sleep(2)
+ 
+            initiate_button = WebDriverWait(driver, 30).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Initiate Request')]"))
+            )
+            initiate_button.click()
+            print("Clicked on Initiate Request Button")
+            time.sleep(3)
+        else:   
+            print("Button is Verify: no action needed")
+            time.sleep(3)
+ 
+        # Bitsight Automation
+        bitsight_url = "https://service.bitsighttech.com/sso/aig-pc-global-services-inc/"
+        driver.execute_script("window.open('');")
+        driver.switch_to.window(driver.window_handles[-1])
+        driver.get(bitsight_url)
+        print("Navigated to Bitsight Application")
+        time.sleep(3)
+ 
+        search_field = WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Search Company or Domain']"))
+        )
+        search_field.send_keys(domain)
+        print(f"Searched for the Domain: {domain}")
+        search_field.send_keys(Keys.RETURN)
+        print("Performed Search in Bitsight")
+        time.sleep(3)
+ 
+ 
+        try:
+            print(f"Searching for domain'{domain}' in Bitsight..")
+            domain_result = WebDriverWait(driver, 40).until(
+                EC.presence_of_element_located((By.XPATH, "//div[contains(@class,'col--primary_domain')]//a"))
+            )
+            boundary_cond5 = "Y"
+            print(f"Domain {domain}is Available in Bitsight.")
+            time.sleep(5) 
+        except Exception as inner_e:
+            boundary_cond5 ="N"
+            print(f"Domain{domain} is not found in Bitsight. Error: {inner_e}")
+            print(f"Boundary Condition 5:{boundary_cond5}")  
+            
+ 
     except Exception as e:
-        print(f"An error occurred: {e}")
-        table1_data, table2_data = [], []
+        print(f"Error: {e}")
+ 
+            
     finally:
         driver.quit()
-        return table1_data, table2_data
-
-def execute_sql_query(scenario_id):
+        return boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5
+ 
+    
+                    
+def get_rsop(boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5):
+    print(boundary_cond1)
+    print(boundary_cond2)
+    print(boundary_cond3)
+    print(boundary_cond4)
+    print(boundary_cond5)
+ 
+    if boundary_cond1 == 'Y' and boundary_cond2 == 'Y' and boundary_cond3 == 'Y' and boundary_cond4 == 'Valid' and boundary_cond5 == 'N':
+        rsop_value = '4981_CYBER_PORTAL_UNABLE_TO_PROCESS_RSOP_1'
+    elif boundary_cond1 == 'Y' and boundary_cond2 == 'Y' and boundary_cond3 == 'Y' and boundary_cond4 == 'Redirecting' and boundary_cond5 == 'N':
+        rsop_value = '4981_CYBER_PORTAL_UNABLE_TO_PROCESS_RSOP_2'
+    elif boundary_cond1 == 'Y' and boundary_cond2 == 'Y' and boundary_cond3 == 'Y' and boundary_cond4 == 'Redirecting' and boundary_cond5 == 'Y':
+        rsop_value = '4981_CYBER_PORTAL_UNABLE_TO_PROCESS_RSOP_3'
+    elif boundary_cond4 =="Invalid":
+        rsop_value = 'Assign to L2'    
+    else:
+        rsop_value = 'Assign To L2'
+            
+ 
+    return rsop_value
+ 
+def save_rsop_to_excel(rsop_found,file_name="RSOP_Output.xlsx"):
+    """
+    Save the RSOP output to an excel file in the same format as the UI
+    """
     try:
-        rsop_value = ""
-
-        conn_str = (
-            r'DRIVER={ODBC Driver 17 for SQL Server};'
-            r'SERVER=PWGIDSGLSQ001,50110;'  
-            r'DATABASE=GLMS_GPPolicy_Prod;'
-            r'Trusted_Connection=yes;'
-            r'Connection Timeout=60;'
-            r'MultiSubnetFailover=yes;'
-        )
-
-        conn = pyodbc.connect(conn_str)
-        cursor = conn.cursor()
-
-        sql_query = f"SELECT SCENARIO_ID, DLTD_IN, POL_STAT_TYP FROM GLMS_GPPolicy_Prod..TBATCH_LOG WHERE SCENARIO_ID = {scenario_id};"
-        cursor.execute(sql_query)
-
-        result = cursor.fetchone()
-       
-        if result and result.DLTD_IN == 'Y' and result.POL_STAT_TYP == 'Canceled':
-            print(result)
-            rsop_value = execute_oracle_query(scenario_id)
-        else:
-            print("DLTD_IN IS NOT = Y AND POL_STAT_TYP IS NOT = CANCELED")
-
-        cursor.close()
-        conn.close()
-
-    except pyodbc.Error as e:
-        print(f"Database error: {e}")
-        rsop_value = "error occurred"
-       
-    finally:
-        rsop = list(SOP_Filtering.find({ "GEARID": 5219, "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP"}, {"_id": 0}))
-        for a in rsop:
-            if a["ResolutionSOPID"] == rsop_value:
-                a["highlight"] = "True"
-            else:
-                a["highlight"] = "False"
-       
-        highlighted_rsop = [a for a in rsop if a["highlight"] == "True"]
-        if highlighted_rsop:
-            highlighted_rsop = highlighted_rsop[0]
-        else:
-            highlighted_rsop = {}
-       
-        print(highlighted_rsop)
-        return [highlighted_rsop], []  # Ensure the return value is always a list
-
-def execute_oracle_query(scenario_id):
-    try:
-        os.environ['PATH'] = r'C:\Users\maahmad\Downloads\instantclient-basiclite-windows.x64-21.15.0.0.0dbru\instantclient_21_15' + ";" + os.environ['PATH']
-
-        dsn_tns = cx_Oracle.makedsn('aigabec902-scan.r1-core.r1.aig.net', '1521', service_name='SGIGESP')
-        connection = cx_Oracle.connect(user='MAAHMAD', password='EDAHCF9a=4b#CELI', dsn=dsn_tns)
-       
-        cursor = connection.cursor()
-
-        query = f"""
-        SELECT DIM_POL_ID, PRIOR_DIM_POL_ID, POL_STAT, POL_ID, SRC_KY
-        FROM GXRDSDW.DIM_POLICY
-        WHERE SRC = 'GLMS' AND SRC_KY = '{scenario_id}'
-        """
-       
-        cursor.execute(query)
-        result = cursor.fetchall()
-
-        for row in result:
-            prior_dim_pol_id = row[1] if row[1] is not None else 'NULL'
-            print(f"DIM_POL_ID: {row[0]}, PRIOR_DIM_POL_ID: {prior_dim_pol_id}, POL_STAT: {row[2]}, POL_ID: {row[3]}")
-
-            if prior_dim_pol_id == 'NULL' and row[2] == 'UNBOUND':
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P1"
-                # update_mongodb(row[4])
-            elif prior_dim_pol_id == 'not null' and row[2] == 'BOUND':  
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P2"
-            else:
-                rsop_value = "Assign to l2"
-       
-        cursor.close()
-        connection.close()
-        return rsop_value
-
-    except cx_Oracle.DatabaseError as e:
-        error, = e.args
-        print(f"Oracle-Error-Code: {error.code}")
-        print(f"Oracle-Error-Message: {error.message}")
-    finally:
-        return rsop_value
-
-def update_mongodb(scenario_id):
-    try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['NeuroDB_testing']
-        collection = db['SOP_Filtering']
-
-        filter_query = {
-            "GEARID": 5219,
-            "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP",
-            "Boundarycond3": "BOUND",
-            "Boundarycond4": "Is null",
-            # "SRC_KY": scenario_id
-        }
-
-        update_query = {
-            "$set": {"highlight": "True"}
-        }
-
-        result = collection.update_many(filter_query, update_query)
-        print(filter_query)
-        print(update_query)
-        print(f"Matched {result.matched_count} documents and modified {result.modified_count} documents.")
-
+        df = pd.DataFrame(rsop_found)
+        df.to_excel(file_name,index=False,engine='openpyxl')
+        print(f"RSOP Data Successfully saved to {file_name}")
     except Exception as e:
-        print(f"MongoDB error: {e}")
-
-def save_to_excel(data, filename):
-    # Convert the data to a DataFrame
-    df = pd.DataFrame(data)
-   
-    # Save the DataFrame to an Excel file
-    df.to_excel(filename, index=False)
-
-def send_email_with_attachment(subject, body, to, attachment_path):
-    # Create an instance of the Outlook application
-    outlook = win32.Dispatch('outlook.application')
-   
-    # Create a new email
-    mail = outlook.CreateItem(0)
-   
-    # Set email attributes
-    mail.Subject = subject
-    mail.Body = body
-    mail.To = to
-   
-    # Attach the file
-    mail.Attachments.Add(attachment_path)
-   
-    # Send the email
-    mail.Send()
-   
-    print(f"Email sent to {to} with attachment {attachment_path}")
-
-# # Example usage
-# data = {"incident_No": "INC10921445"}
-# test_incident(data)
+        print(f"Error saving RSOP data to excel: {e}")
+        return None
+ 
+ 
+#call this function in main.py
+def main(data):
+    
+ 
+        boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5=test_incident(data)
+        
+        rsop_value = get_rsop(boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5)
+        print("RSOP value is:")
+        print(rsop_value)
+ 
+        rsop_list = list(SOP_Filtering.find({"GEARID":4981,'FilteredDiagnosticSOPID':"4981_CYBER_PORTAL_UNABLE_TO_PROCESS_DSOP"},{"_id":0}))
+ 
+ 
+        for rsop in rsop_list:
+            if rsop["ResolutionSOPID"] == rsop_value:
+                rsop["highlight"]= "True"
+            
+                rsop_found = list(SOP_Filtering.find({"GEARID":4981,'ResolutionSOPID':rsop_value},{"_id":0}))
+ 
+ 
+                save_rsop_to_excel(rsop_found)
+        
+            else:
+                rsop["highlight"]= "False"
+        
+        print(rsop_found)
+        return rsop_found,[]
