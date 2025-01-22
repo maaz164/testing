@@ -1,29 +1,25 @@
 import pandas as pd
-from pandas.io import excel 
 import win32com.client as win32
-from datetime import datetime 
-import enum
+import os
 import re
+import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC 
-from selenium.webdriver.chrome.options import Options
-import time
+from datetime import datetime
 from config import SOP_Filtering
- 
- 
+
 def test_incident(data):
     print(data)
-    boundary_cond1='N'
-    boundary_cond2='N'
-    boundary_cond3='N'
-    boundary_cond4='Invalid'
-    boundary_cond5='N'
+    boundary_cond1 = 'N'
+    boundary_cond2 = 'N'
+    boundary_cond3 = 'N'
+    boundary_cond4 = 'Invalid'
+    boundary_cond5 = 'N'
     
     try:
-        
         incident_number = data["incident_no"]
         options = Options()
         options.add_argument("--window-size=1920,1080")
@@ -33,8 +29,8 @@ def test_incident(data):
         driver.get(url)
         time.sleep(10)
         print(f"Navigated to incident number: {incident_number}")
- 
-        # For fetching the description part of incident ticket    
+
+        # For fetching the description part of the incident ticket    
         WebDriverWait(driver, 80).until(
             EC.presence_of_element_located((By.ID, "gsft_main"))
         )
@@ -45,57 +41,55 @@ def test_incident(data):
         )
         description_element = driver.find_element(By.ID, "incident.description")
         textarea_value = description_element.get_attribute("value")
-        print("description",textarea_value)
- 
+        print("description", textarea_value)
+
         # Validating DNB Number
         dnb_number = re.findall(r'DNB:\s*(\d+)', textarea_value)
         boundary_cond1 = "Y" if dnb_number else "N"
         if dnb_number:
-            print(f"DNB Nuber Found:{dnb_number[0]}")
+            print(f"DNB Number Found: {dnb_number[0]}")
         else:
             print("No DNB number found in the Description")
-        
- 
-        #Validating Account Name 
+
+        # Validating Account Name
         boundary_cond2 = "Y" if "Account Name" in textarea_value else "N"
-        print(f"Boundary Condition 2:{boundary_cond2}")
- 
-        #Validating Domain
-        domain_match = re.findall(r"Domain:\s*([\w\.-]+\.\w+)",textarea_value)
+        print(f"Boundary Condition 2: {boundary_cond2}")
+
+        # Validating Domain
+        domain_match = re.findall(r"Domain:\s*([\w\.-]+\.\w+)", textarea_value)
         boundary_cond3 = "Y" if domain_match else "N"
         domain = domain_match[0] if domain_match else None
-        print(f"Boundary Condition 3:{boundary_cond3},Domain:{domain}")
+        print(f"Boundary Condition 3: {boundary_cond3}, Domain: {domain}")
         formatted_domain = f"www.{domain}"
         
         if formatted_domain:
-                driver.switch_to.new_window('tab')
-                driver.get(f"https://{formatted_domain}")
-                time.sleep(3)
- 
+            driver.switch_to.new_window('tab')
+            driver.get(f"https://{formatted_domain}")
+            time.sleep(3)
+
         current_url = driver.current_url
-        print(f"Current URL after navigation:{current_url}")
+        print(f"Current URL after navigation: {current_url}")
         if current_url.startswith("https://") or current_url.startswith("http://"):
             if current_url.rstrip("/") == f"https://{formatted_domain}".rstrip("/"):
                 boundary_cond4 = "Valid"
             elif current_url != f"https://{formatted_domain}":
                 boundary_cond4 = "Redirecting"
             else:
-                 boundary_cond4 = "Invalid"  
+                boundary_cond4 = "Invalid"  
         else:
             boundary_cond4 = "Invalid"
-            print(f"Boundary Condition 4 : {boundary_cond4}")  
-       
- 
+            print(f"Boundary Condition 4: {boundary_cond4}")  
+
         print(f"Navigated to: {formatted_domain}")  
         print(f"Valid domain found: {domain}")
         time.sleep(3)
- 
+
         driver.switch_to.new_window('tab')
         cyber_portal_url = "https://cyberportal.apps.puse1-pcf.gi.pubcloud.aig.net/"
         driver.get(cyber_portal_url)
         print(f"Navigated to cyber portal: {cyber_portal_url}")
         time.sleep(3)
- 
+
         duns_button = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.XPATH, "//li[@role='tab' and @aria-posinset='4']"))
         )
@@ -107,12 +101,12 @@ def test_incident(data):
         )
         duns_input.send_keys(dnb_number)
         print(f"Entered DNB Number: {dnb_number}")
- 
+
         search_button = driver.find_element(By.ID, "app_search_byDunsNo")
         search_button.click()
         print("Clicked on Search button")
         time.sleep(3)
- 
+
         account_name_link = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.ID, "app_searchResults_acountBySubNoNme0"))
         )
@@ -120,14 +114,14 @@ def test_incident(data):
         print("Clicked on Account name link")
         time.sleep(5)
         try:
-            go_to_account_button = WebDriverWait(driver,5).until(
-                EC.presence_of_element_located((By.ID,"app_searchResults_goToSelectAccDetails0"))
+            go_to_account_button = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.ID, "app_searchResults_goToSelectAccDetails0"))
             )
             go_to_account_button.click()
             print("Clicked on 'Go to Selected Account' button in the popup")
         except Exception as e:
-            print("No Popup Appeard.Continuing....")    
- 
+            print("No Popup Appeared. Continuing...")    
+
         osia_tab = WebDriverWait(driver, 30).until(
             EC.element_to_be_clickable((By.ID, "app_accountOvervw_openSource"))
         )
@@ -136,32 +130,32 @@ def test_incident(data):
         osia_tab.click()
         print("Clicked on Open Source Intelligent Assessment Tab")
         time.sleep(3)
- 
+
         verify_button = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.XPATH, "//button[contains(text(),'Verify') or contains(text(),'Re-verify')]"))
         )
         button_text = verify_button.text.strip()
         print(f"Button found with text: {button_text}")
- 
+
         if button_text == "Re-verify":
             verify_button.click()
             print("Clicked on Re-verify Button")
             time.sleep(2)
- 
+
             calender_icon = WebDriverWait(driver, 30).until(
                 EC.element_to_be_clickable((By.XPATH, "//input[@type='date']//following-sibling::button"))
             )    
             calender_icon.click()
             print("Clicked on calendar Icon")
             time.sleep(2)
- 
+
             date_picker = WebDriverWait(driver, 30).until(
                 EC.element_to_be_clickable((By.XPATH, "//td[@class='available' and text()='15']"))
             )
             date_picker.click()
             print("Selected a date from a calendar")
             time.sleep(2)
- 
+
             initiate_button = WebDriverWait(driver, 30).until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Initiate Request')]"))
             )
@@ -171,7 +165,7 @@ def test_incident(data):
         else:   
             print("Button is Verify: no action needed")
             time.sleep(3)
- 
+
         # Bitsight Automation
         bitsight_url = "https://service.bitsighttech.com/sso/aig-pc-global-services-inc/"
         driver.execute_script("window.open('');")
@@ -179,7 +173,7 @@ def test_incident(data):
         driver.get(bitsight_url)
         print("Navigated to Bitsight Application")
         time.sleep(3)
- 
+
         search_field = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Search Company or Domain']"))
         )
@@ -188,90 +182,100 @@ def test_incident(data):
         search_field.send_keys(Keys.RETURN)
         print("Performed Search in Bitsight")
         time.sleep(3)
- 
- 
+
         try:
             print(f"Searching for domain'{domain}' in Bitsight..")
             domain_result = WebDriverWait(driver, 40).until(
                 EC.presence_of_element_located((By.XPATH, "//div[contains(@class,'col--primary_domain')]//a"))
             )
             boundary_cond5 = "Y"
-            print(f"Domain {domain}is Available in Bitsight.")
+            print(f"Domain {domain} is Available in Bitsight.")
             time.sleep(5) 
         except Exception as inner_e:
-            boundary_cond5 ="N"
-            print(f"Domain{domain} is not found in Bitsight. Error: {inner_e}")
-            print(f"Boundary Condition 5:{boundary_cond5}")  
+            boundary_cond5 = "N"
+            print(f"Domain {domain} is not found in Bitsight. Error: {inner_e}")
+            print(f"Boundary Condition 5: {boundary_cond5}")  
             
- 
     except Exception as e:
         print(f"Error: {e}")
- 
             
     finally:
         driver.quit()
-        return boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5
- 
-    
-                    
-def get_rsop(boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5):
+        return boundary_cond1, boundary_cond2, boundary_cond3, boundary_cond4, boundary_cond5
+
+def get_rsop(boundary_cond1, boundary_cond2, boundary_cond3, boundary_cond4, boundary_cond5):
     print(boundary_cond1)
     print(boundary_cond2)
     print(boundary_cond3)
     print(boundary_cond4)
     print(boundary_cond5)
- 
+
     if boundary_cond1 == 'Y' and boundary_cond2 == 'Y' and boundary_cond3 == 'Y' and boundary_cond4 == 'Valid' and boundary_cond5 == 'N':
         rsop_value = '4981_CYBER_PORTAL_UNABLE_TO_PROCESS_RSOP_1'
     elif boundary_cond1 == 'Y' and boundary_cond2 == 'Y' and boundary_cond3 == 'Y' and boundary_cond4 == 'Redirecting' and boundary_cond5 == 'N':
         rsop_value = '4981_CYBER_PORTAL_UNABLE_TO_PROCESS_RSOP_2'
     elif boundary_cond1 == 'Y' and boundary_cond2 == 'Y' and boundary_cond3 == 'Y' and boundary_cond4 == 'Redirecting' and boundary_cond5 == 'Y':
         rsop_value = '4981_CYBER_PORTAL_UNABLE_TO_PROCESS_RSOP_3'
-    elif boundary_cond4 =="Invalid":
+    elif boundary_cond4 == "Invalid":
         rsop_value = 'Assign to L2'    
     else:
         rsop_value = 'Assign To L2'
-            
- 
+
     return rsop_value
- 
-def save_rsop_to_excel(rsop_found,file_name="RSOP_Output.xlsx"):
+
+def save_rsop_to_excel(rsop_found, file_name="RSOP_Output.xlsx"):
     """
-    Save the RSOP output to an excel file in the same format as the UI
+    Save the RSOP output to an excel file in the same format as the UI.
     """
     try:
         df = pd.DataFrame(rsop_found)
-        df.to_excel(file_name,index=False,engine='openpyxl')
+        df.to_excel(file_name, index=False, engine='openpyxl')
         print(f"RSOP Data Successfully saved to {file_name}")
+        return file_name  # Return the file path to use later for email attachment
     except Exception as e:
         print(f"Error saving RSOP data to excel: {e}")
         return None
- 
- 
-#call this function in main.py
+
+def send_email_with_attachment(file_path):
+    """
+    Send an email with the given file as an attachment using Outlook.
+    """
+    try:
+        outlook = win32.Dispatch('outlook.application')
+        mail = outlook.CreateItem(0)  # 0: Mail item
+        mail.Subject = 'RSOP Report'
+        mail.Body = 'Please find the attached RSOP report.'
+        mail.To = 'recipient@example.com'  # Replace with actual recipient email address
+
+        # Attach the Excel file
+        attachment = os.path.abspath(file_path)
+        mail.Attachments.Add(attachment)
+        mail.Send()
+        print(f"Email sent successfully with attachment: {file_path}")
+    except Exception as e:
+        print(f"Error sending email: {e}")
+
 def main(data):
-    
- 
-        boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5=test_incident(data)
-        
-        rsop_value = get_rsop(boundary_cond1,boundary_cond2,boundary_cond3,boundary_cond4,boundary_cond5)
-        print("RSOP value is:")
-        print(rsop_value)
- 
-        rsop_list = list(SOP_Filtering.find({"GEARID":4981,'FilteredDiagnosticSOPID':"4981_CYBER_PORTAL_UNABLE_TO_PROCESS_DSOP"},{"_id":0}))
- 
- 
-        for rsop in rsop_list:
-            if rsop["ResolutionSOPID"] == rsop_value:
-                rsop["highlight"]= "True"
-            
-                rsop_found = list(SOP_Filtering.find({"GEARID":4981,'ResolutionSOPID':rsop_value},{"_id":0}))
- 
- 
-                save_rsop_to_excel(rsop_found)
-        
-            else:
-                rsop["highlight"]= "False"
-        
-        print(rsop_found)
-        return rsop_found,[]
+    boundary_cond1, boundary_cond2, boundary_cond3, boundary_cond4, boundary_cond5 = test_incident(data)
+    rsop_value = get_rsop(boundary_cond1, boundary_cond2, boundary_cond3, boundary_cond4, boundary_cond5)
+    print("RSOP value is:")
+    print(rsop_value)
+
+    rsop_list = list(SOP_Filtering.find({"GEARID": 4981, 'FilteredDiagnosticSOPID': "4981_CYBER_PORTAL_UNABLE_TO_PROCESS_DSOP"}, {"_id": 0}))
+
+    rsop_found = None  # Placeholder for the found RSOP records
+    for rsop in rsop_list:
+        if rsop["ResolutionSOPID"] == rsop_value:
+            rsop["highlight"] = "True"
+            rsop_found = list(SOP_Filtering.find({"GEARID": 4981, 'ResolutionSOPID': rsop_value}, {"_id": 0}))
+            file_name = save_rsop_to_excel(rsop_found)  # Save the RSOP data to Excel
+            # Send email with the generated file
+            send_email_with_attachment(file_name)  # The Excel file created earlier
+        else:
+            rsop["highlight"] = "False"
+
+    print(rsop_found)
+    return rsop_found, []
+
+# Run the main function with your data input
+# main(data)
