@@ -1,36 +1,36 @@
-import time, pyperclip,DiagnosticSOP1
+import time
+import pyperclip
+import DiagnosticSOP1
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common import action_chains
 from selenium.webdriver.common.keys import Keys
 import json
-from config import SmartOpsQueueCollection,SNOW_Groups,SEND_Mail
+from config import SmartOpsQueueCollection, SNOW_Groups, SEND_Mail
 import pandas as pd
 import win32com.client as win32
-from datetime import datetime,timedelta
-
+from datetime import datetime, timedelta
 import schedule
-
-def get_incident(): 
-    global timestamp_start   
+def get_incident():
+    global timestamp_start
     timestamp_start = time.time()
 
     options = Options()
     options.add_argument("--window-size=1920,1080")
     driver = webdriver.Chrome(options=options)
     driver.maximize_window()
-    
-    url='https://aig.service-now.com/'
+
+    url = 'https://aig.service-now.com/'
     driver.get(url)
-    time.sleep(15)
+    time.sleep(25)
 
     url_prefix = "https://aig.service-now.com/incident_list.do?JSONv2&sysparm_query="
 
-    assignments,assignment_group_mapping,gear_id_mapping = get_snow_groups()
+    assignments, assignment_group_mapping, gear_id_mapping = get_snow_groups()
     assignment_groups = "assignment_group.nameIN"+assignments
-    
+
     # state_cd = "%5EstateIN1%2C2&sysparm_view="
-    state_cd = "%5EstateIN1%2C2&sysparm_view=" #"%5EstateIN1%2C2&sysparm_view="
+    state_cd = "%5EstateIN1%2C2&sysparm_view="  # "%5EstateIN1%2C2&sysparm_view="
     final_url = url_prefix + assignment_groups + state_cd
     print(final_url)
     driver.get(final_url)
@@ -42,13 +42,13 @@ def get_incident():
     action.send_keys('c')
     action.key_up(Keys.CONTROL)
     action.perform()
-    
+
     print("copy now")
     time.sleep(10)
     print("data copied")
-    
+
     jsonstring = pyperclip.paste()
-    
+
     open_json_object = json.loads(jsonstring)
     print(len(open_json_object["records"]))
 
@@ -62,26 +62,27 @@ def get_incident():
                      "7": "Closed",
                      "8": "Cancelled"}
 
-    sop_query=SEND_Mail
+    sop_query = SEND_Mail
     sop_query.delete_many({})
-    
+
     for i in range(0, len(open_json_object["records"])):
 
         try:
-            gearid=int(gear_id_mapping[open_json_object["records"][i]["assignment_group"]])
-            
-            diasop,mandatoryinfo,automation=DiagnosticSOP1.check_keywords2(gearid,open_json_object["records"][i]["short_description"])
+            gearid = int(
+                gear_id_mapping[open_json_object["records"][i]["assignment_group"]])
 
-            appname=getappname(gearid)
+            diasop, mandatoryinfo, automation = DiagnosticSOP1.check_keywords2(
+                gearid, open_json_object["records"][i]["short_description"])
+
+            appname = getappname(gearid)
 
             timestamp1 = "1970-01-01 00:00:00"
             timestamp2 = open_json_object["records"][i]["u_business_time_to_resolve"]
 
-            #tempstart
+            # tempstart
             if timestamp2 == " " or timestamp2 == "":
                 timestamp2 = timestamp1
-            #tempend
-            
+            # tempend
 
             time_obj1 = datetime.strptime(timestamp1, "%Y-%m-%d %H:%M:%S")
             time_obj2 = datetime.strptime(timestamp2, "%Y-%m-%d %H:%M:%S")
@@ -96,202 +97,85 @@ def get_incident():
             # avg_time = str(timedelta(minutes=minutes))
 
             sop_query.insert_one({"Number": open_json_object["records"][i]["number"],
-                                    "Ticket_Type": "Incident",
-                                    # "Buisness Time To Resolve(In Minutes)": round(minutes),
-                                    "Opened_at": open_json_object["records"][i][ "opened_at"],                                              
-                                    "State": state_mapping[open_json_object["records"][i]["state"]],
-                                    "Assignment_Group": assignment_group_mapping[open_json_object["records"][i]["assignment_group"]],
-                                    "Short_Description": open_json_object["records"][i]["short_description"],
-                                    "Sop_Available": "TBD",
-                                    "Sop_Name": diasop,
-                                    "Action_Required":"TBD",
-                                    "ApplicationName":appname,
-                                    "Gearid":gearid,
-                                    "Automation":automation
-                                })
+                                  "Ticket_Type": "Incident",
+                                  # "Buisness Time To Resolve(In Minutes)": round(minutes),
+                                  "Opened_at": open_json_object["records"][i]["opened_at"],
+                                  "State": state_mapping[open_json_object["records"][i]["state"]],
+                                  "Assignment_Group": assignment_group_mapping[open_json_object["records"][i]["assignment_group"]],
+                                  "Short_Description": open_json_object["records"][i]["short_description"],
+                                  "Sop_Available": "TBD",
+                                  "Sop_Name": diasop,
+                                  "Action_Required": "TBD",
+                                  "ApplicationName": appname,
+                                  "Gearid": gearid,
+                                  "Automation": automation
+                                  })
 
         except Exception as e:
             print(e, open_json_object["records"][i]["number"])
             continue
 
-    myquery = { "Sop_Name": "No SOP found. Please assign to L2" }
-    newvalues = { "$set": { "Sop_Available": "No" } }
+    myquery = {"Sop_Name": "No SOP found. Please assign to L2"}
+    newvalues = {"$set": {"Sop_Available": "No"}}
     sop_query.update_many(myquery, newvalues)
 
-    myquery1 = { "Sop_Available": "TBD" }
-    newvalues1 = { "$set": { "Sop_Available": "Yes" } }
+    myquery1 = {"Sop_Available": "TBD"}
+    newvalues1 = {"$set": {"Sop_Available": "Yes"}}
     sop_query.update_many(myquery1, newvalues1)
 
-    myquery2 = { "Sop_Available": "Yes" }
-    newvalues2 = { "$set": { "Action_Required": "Assign to SmartOps" } }
+    myquery2 = {"Sop_Available": "Yes"}
+    newvalues2 = {"$set": {"Action_Required": "Assign to SmartOps"}}
     sop_query.update_many(myquery2, newvalues2)
 
-    myquery3 = { "Sop_Available": "No" }
-    newvalues3 = { "$set": { "Action_Required": "Assign to L2 Team" } }
+    myquery3 = {"Sop_Available": "No"}
+    newvalues3 = {"$set": {"Action_Required": "Assign to L2 Team"}}
     sop_query.update_many(myquery3, newvalues3)
 
-    result=SEND_Mail.find({},{"_id":0})
-    createexcel('Incident_data.xlsx',result)
+    result = SEND_Mail.find({}, {"_id": 0})
+    createexcel('Incident_data.xlsx', result)
     return driver
 
-def get_tasks(driver):
-    # options = Options()
-    # options.add_argument("--window-size=1920,1080")
-    # driver = webdriver.Chrome(options=options)
-    # driver.maximize_window()
-    
-    url='https://aig.service-now.com/'
-    driver.get(url)
-    # time.sleep(15)
-
-    url_prefix = "https://aig.service-now.com/sc_task_list.do?JSONv2&sysparm_query="
-
-    assignments,assignment_group_mapping,gear_id_mapping = get_snow_groups()
-    assignment_groups = "assignment_group.nameIN"+assignments
-    
-    # state_cd = "%5EstateIN1%2C2&sysparm_view="
-    state_cd = "%5EstateIN1%2C2%5Eopened_atONThis%20month@javascript:gs.beginningOfThisMonth()@javascript:gs.endOfThisMonth()&sysparm_first_row=1&sysparm_view="
-    final_url = url_prefix + assignment_groups + state_cd
-    print(final_url)
-    driver.get(final_url)
-
-    # time.sleep(15)
-
-    action = action_chains.ActionChains(driver)
-    action.key_down(Keys.CONTROL).send_keys('a')
-    action.send_keys('c')
-    action.key_up(Keys.CONTROL)
-    action.perform()
-    
-    print("copy now")
-    time.sleep(10)
-    print("data copied")
-    
-    jsonstring = pyperclip.paste()
-    
-    open_json_object = json.loads(jsonstring)
-    print(len(open_json_object["records"]))
-
-    driver.quit()
-# New Code 5/3/2024
-
-    state_mapping = {
-                     "1":"Open",
-                     "2":"Work in progress",
-                     "3": "Closed Complete",
-                     "4": "Closed Incomplete",
-                     }
-
-    sop_query=SEND_Mail
-    sop_query.delete_many({})
-    
-    for i in range(0, len(open_json_object["records"])):
-
-        try:
-            gearid=int(gear_id_mapping[open_json_object["records"][i]["assignment_group"]])
-            
-            diasop,mandatoryinfo,automation=DiagnosticSOP1.check_keywords2(gearid,open_json_object["records"][i]["short_description"])
-
-            appname=getappname(gearid)
-
-            timestamp1 = "1970-01-01 00:00:00"
-            timestamp2 = open_json_object["records"][i]["u_rpt_get_age"]
-
-            #tempstart
-            if timestamp2 == " " or timestamp2 == "":
-                timestamp2 = timestamp1
-            #tempend
-            
-
-            time_obj1 = datetime.strptime(timestamp1, "%Y-%m-%d %H:%M:%S")
-            time_obj2 = datetime.strptime(timestamp2, "%Y-%m-%d %H:%M:%S")
-
-            epoch = datetime(1970, 1, 1)
-            seconds1 = int((time_obj1-epoch).total_seconds())
-            seconds2 = int((time_obj2-epoch).total_seconds())
-
-            seconds = abs(seconds2 - seconds1)
-            minutes = seconds/60
-
-            # avg_time = str(timedelta(minutes=minutes))
-
-            sop_query.insert_one({"Number": open_json_object["records"][i]["number"],
-                                    "Ticket_Type": "Task",
-                                    # "Buisness Time To Resolve(In Minutes)": round(minutes),
-                                    "Opened_at": open_json_object["records"][i][ "opened_at"],                                              
-                                    "State": state_mapping[open_json_object["records"][i]["state"]],
-                                    "Assignment_Group": assignment_group_mapping[open_json_object["records"][i]["assignment_group"]],
-                                    "Short_Description": open_json_object["records"][i]["short_description"],
-                                    "Sop_Available": "TBD",
-                                    "Sop_Name": diasop,
-                                    "Action_Required":"TBD",
-                                    "ApplicationName":appname,
-                                    "Gearid":gearid,
-                                    "Automation":automation
-                                })
-
-        except Exception as e:
-            print(e, open_json_object["records"][i]["number"])
-            continue
-
-    myquery = { "Sop_Name": "No SOP found. Please assign to L2" }
-    newvalues = { "$set": { "Sop_Available": "No" } }
-    sop_query.update_many(myquery, newvalues)
-
-    myquery1 = { "Sop_Available": "TBD" }
-    newvalues1 = { "$set": { "Sop_Available": "Yes" } }
-    sop_query.update_many(myquery1, newvalues1)
-
-    myquery2 = { "Sop_Available": "Yes" }
-    newvalues2 = { "$set": { "Action_Required": "Assign to SmartOps" } }
-    sop_query.update_many(myquery2, newvalues2)
-
-    myquery3 = { "Sop_Available": "No" }
-    newvalues3 = { "$set": { "Action_Required": "Assign to L2 Team" } }
-    sop_query.update_many(myquery3, newvalues3)
-
-    result=SEND_Mail.find({},{"_id":0})
-
-    createexcel('Tasks_data.xlsx',result)
-
 def get_snow_groups():
-    snow_query=SNOW_Groups
-    myquery = { "SmartOps Onboarding": "Yes" }
+    snow_query = SNOW_Groups
+    myquery = {"SmartOps Onboarding": "Yes"}
     snow_cursor = snow_query.find(myquery)
     snow_groups = ""
     snow_addendum = "%2C"
-    snow_count=0
-    assignment_group_mapping={}
-    gear_id_mapping={}
+    snow_count = 0
+    assignment_group_mapping = {}
+    gear_id_mapping = {}
 
     for count in snow_cursor:
-        snow_count+=1
+        snow_count += 1
         snow_groups = snow_groups + count["SNOW Group"] + snow_addendum
-        assignment_group_mapping.update({count["L2 Group Snow ID"]:count["SNOW Group"]})
-        gear_id_mapping.update({count["L2 Group Snow ID"]:str(count["Gear ID"])})
+        assignment_group_mapping.update(
+            {count["L2 Group Snow ID"]: count["SNOW Group"]})
+        gear_id_mapping.update(
+            {count["L2 Group Snow ID"]: str(count["Gear ID"])})
 
     print(assignment_group_mapping)
     print(gear_id_mapping)
-    # print("Groups Fetched: ",snow_count)
- 
-    print("Groups are: ",snow_groups)
+   
+
+    print("Groups are: ", snow_groups)
     assignments = snow_groups[:-3]
-    # print(assignments)
-    
-    return assignments,assignment_group_mapping,gear_id_mapping
+   
+
+    return assignments, assignment_group_mapping, gear_id_mapping
 
 def getappname(gearid):
-    query={"Gear ID": gearid}
-    result=SNOW_Groups.find_one(query)
-    appname=result["App Name"]
+    query = {"Gear ID": gearid}
+    result = SNOW_Groups.find_one(query)
+    appname = result["App Name"]
     return appname
 
-def createexcel(filename,data):
+def createexcel(filename, data):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    df=pd.DataFrame(data)
-    df.to_excel(filename,index=False)
+    df = pd.DataFrame(data)
+    df.to_excel(filename, index=False)
 
-def send_mail(to,subject,body,path1,path2,cc=None):
+
+def send_mail(to, subject, body, path1, cc=None):
     global last_email_send_time
     try:
         outlook = win32.Dispatch('outlook.application')
@@ -299,30 +183,32 @@ def send_mail(to,subject,body,path1,path2,cc=None):
         mail.Subject = subject
         mail.HTMLBody = f'{body}'
         mail.Attachments.Add(path1)
-        mail.Attachments.Add(path2)
-        
-        if isinstance(to,list):
-            mail.To=";".join(to)
+        # mail.Attachments.Add(path2)
+
+        if isinstance(to, list):
+            mail.To = ";".join(to)
         else:
-            mail.To=to
+            mail.To = to
 
         if cc:
-            if isinstance(cc,list):
-                mail.CC=";".join(cc)
+            if isinstance(cc, list):
+                mail.CC = ";".join(cc)
             else:
-                mail.CC=cc
+                mail.CC = cc
 
         mail.Send()
         last_email_send_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print("Last email sent at:", last_email_send_time)
-    
-    except Exception as e:
-        print("Error occ:",e)
 
-path1=r"C:\Users\maahmad\MAAZ\React\React\myapp\build\Incident_data.xlsx"
-path2=r"C:\Users\maahmad\MAAZ\React\React\myapp\build\Tasks_data.xlsx"
+    except Exception as e:
+        print("Error occ:", e)
+
+path1 = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\Incident_data.xlsx"
 driver = get_incident()
-get_tasks(driver)
-send_mail(['Maaz.ahmad@aig.com'],"SmartOPS - Resolved Incidents and Tasks for Feb,March,April",'Hi find the files below',path1,path2)
+driver.quit()
+
+send_mail(['Maaz.ahmad@aig.com'], "SmartOPS - Resolved Incidents and Tasks for Feb,March,April",
+          'Hi find the files below', path1)  # path2)
 timestamp_end = time.time()
-print('Time required for execution : ',timestamp_end - timestamp_start)
+print('Time required for execution : ', timestamp_end - timestamp_start)
+#read teh xls file for automation yes or can we search of dsop whos automation is availaible 
