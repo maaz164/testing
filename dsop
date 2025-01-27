@@ -212,3 +212,12 @@ send_mail(['Maaz.ahmad@aig.com'], "SmartOPS - Resolved Incidents and Tasks for F
 timestamp_end = time.time()
 print('Time required for execution : ', timestamp_end - timestamp_start)
 #read teh xls file for automation yes or can we search of dsop whos automation is availaible 
+run2all.py
+import pandas as pd
+
+file_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\runtoall.xlsx"
+df = pd.read_excel(file_path)
+
+print(df.columns)
+Sop_Name,NAM_5219_PDI_UNBIND_REQUEST_DSOP,Automation
+
