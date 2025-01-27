@@ -233,3 +233,8 @@ else:
     print("Matching row found. Running the Python code file...")
     # Run the Python code file
     subprocess.run(["python", "path_to_your_python_code_file.py"])
+error-:
+File "c:\Users\maahmad\MAAZ\React\React\myapp\build\jumpserver.py", line 20
+    subprocess.run(["python", "C:\Users\maahmad\MAAZ\React\React\myapp\build\NAM_5219_UNBIND_REQUEST_DSOP.py"])
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^   
+SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 2-3: truncated \UXXXXXXXX escape
