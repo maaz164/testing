@@ -1,3 +1,25 @@
+1.
+import pandas as pd
+import subprocess
+
+# Load the Excel file
+file_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\runtoall.xlsx"
+df = pd.read_excel(file_path)
+
+# Print the column names
+print(df.columns)
+
+# Search for the specific value in Sop_Name column and check Automation column
+condition = (df['Sop_Name'] == 'NAM_5219_PDI_UNBIND_REQUEST_DSOP') & (df['Automation'] == 'Yes')
+
+# Check if any row meets the condition
+if df[condition].empty:
+    print("No matching rows found.")
+else:
+    print("Matching row found. Running the Python code file...")
+    # Run the Python code file
+    subprocess.run(["python", r"C:\Users\maahmad\MAAZ\React\React\myapp\build\sharing.py"])
+2.
 import re
 import cx_Oracle
 from selenium import webdriver
@@ -14,10 +36,27 @@ from config import SOP_Filtering
 from selenium.webdriver.common.alert import Alert
 import pandas as pd
 import win32com.client as win32
+import tkinter as tk
+from tkinter import simpledialog
 
-def test_incident(data):
+
+# Function to get the incident number from the user via a pop-up dialog
+def get_incident_number():
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    incident_number = simpledialog.askstring("Input", "Please enter the Incident Number:")
+    return incident_number
+
+
+def test_incident():
     try:
-        incident_number = data["incidentNo"]
+        # Get the incident number from the user if not passed in data
+        incident_number =  get_incident_number()
+
+        if not incident_number:
+            print("Incident number not provided.")
+            return []
+
         options = Options()
         options.add_argument("--window-size=1920,1080")
         driver = webdriver.Chrome(options=options)
@@ -48,7 +87,6 @@ def test_incident(data):
             print(f"Found SCENARIO_ID: {scenario_id}")
 
             table1_data, table2_data = execute_sql_query(scenario_id)
-           
         else:
             print("No SCENARIO_ID found in the description.")
             # Prompt the user for SCENARIO_ID
@@ -67,14 +105,14 @@ def test_incident(data):
         #    })
 
         # Save table1_data to an Excel file
-        if len(table1_data[0])>=1:
+        if len(table1_data[0]) >= 1:
             save_to_excel(table1_data, "table1_data.xlsx")
 
             # Send the Excel file via email
             subject = "Table1 Data"
             body = "Please find the attached file containing Table1 data."
             to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\table1_data.xlsx"
+            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
             send_email_with_attachment(subject, body, to, attachment_path)
 
     except Exception as e:
@@ -111,9 +149,10 @@ def test_incident(data):
             subject = "Table1 Data"
             body = "Please find the attached file containing Table1 data."
             to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\table1_data.xlsx"
+            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
             send_email_with_attachment(subject, body, to, attachment_path)
         return table1_data, table2_data
+
 
 def execute_sql_query(scenario_id):
     try:
@@ -166,6 +205,7 @@ def execute_sql_query(scenario_id):
         print(highlighted_rsop)
         return [highlighted_rsop], []  # Ensure the return value is always a list
 
+
 def execute_oracle_query(scenario_id):
     try:
         os.environ['PATH'] = r'C:\Users\maahmad\Downloads\instantclient-basiclite-windows.x64-21.15.0.0.0dbru\instantclient_21_15' + ";" + os.environ['PATH']
@@ -207,6 +247,7 @@ def execute_oracle_query(scenario_id):
     finally:
         return rsop_value
 
+
 def update_mongodb(scenario_id):
     try:
         client = MongoClient('mongodb://localhost:27017/')
@@ -233,12 +274,14 @@ def update_mongodb(scenario_id):
     except Exception as e:
         print(f"MongoDB error: {e}")
 
+
 def save_to_excel(data, filename):
     # Convert the data to a DataFrame
     df = pd.DataFrame(data)
    
     # Save the DataFrame to an Excel file
     df.to_excel(filename, index=False)
+
 
 def send_email_with_attachment(subject, body, to, attachment_path):
     # Create an instance of the Outlook application
@@ -260,6 +303,7 @@ def send_email_with_attachment(subject, body, to, attachment_path):
    
     print(f"Email sent to {to} with attachment {attachment_path}")
 
+
 # # Example usage
-# data = {"incident_No": "INC10921445"}
-# test_incident(data)
+# data = {"incidentNo": "INC10921445"}
+test_incident()
