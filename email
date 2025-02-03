@@ -1218,3 +1218,4 @@ def send_email_with_attachment(subject, body, to, attachment_path):
 # # Example usage
 # data = {"incidentNo": "INC10921445"}
 test_incident()
+pattern- scenario
