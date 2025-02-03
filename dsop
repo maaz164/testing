@@ -638,11 +638,12 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common import action_chains
 from selenium.webdriver.common.keys import Keys
 import json
-from config import SmartOpsQueueCollection, SNOW_Groups, SEND_Mail
+from config import SmartOpsQueueCollection, SNOW_Groups
 import pandas as pd
 import win32com.client as win32
 from datetime import datetime, timedelta
 import schedule
+
 def get_incident():
     global timestamp_start
     timestamp_start = time.time()
@@ -661,13 +662,10 @@ def get_incident():
     assignments, assignment_group_mapping, gear_id_mapping = get_snow_groups()
     assignment_groups = "assignment_group.nameIN"+assignments
 
-    # state_cd = "%5EstateIN1%2C2&sysparm_view="
     state_cd = "%5EstateIN1%2C2&sysparm_view="  # "%5EstateIN1%2C2&sysparm_view="
     final_url = url_prefix + assignment_groups + state_cd
     print(final_url)
     driver.get(final_url)
-
-    # time.sleep(15)
 
     action = action_chains.ActionChains(driver)
     action.key_down(Keys.CONTROL).send_keys('a')
@@ -684,9 +682,6 @@ def get_incident():
     open_json_object = json.loads(jsonstring)
     print(len(open_json_object["records"]))
 
-    # driver.quit()
-# New Code 5/3/2024
-
     state_mapping = {"1": "New",
                      "2": "In Progress",
                      "3": "On Hold",
@@ -694,7 +689,7 @@ def get_incident():
                      "7": "Closed",
                      "8": "Cancelled"}
 
-    sop_query = SEND_Mail
+    sop_query = SmartOpsQueueCollection
     sop_query.delete_many({})
 
     for i in range(0, len(open_json_object["records"])):
@@ -711,10 +706,8 @@ def get_incident():
             timestamp1 = "1970-01-01 00:00:00"
             timestamp2 = open_json_object["records"][i]["u_business_time_to_resolve"]
 
-            # tempstart
             if timestamp2 == " " or timestamp2 == "":
                 timestamp2 = timestamp1
-            # tempend
 
             time_obj1 = datetime.strptime(timestamp1, "%Y-%m-%d %H:%M:%S")
             time_obj2 = datetime.strptime(timestamp2, "%Y-%m-%d %H:%M:%S")
@@ -726,11 +719,8 @@ def get_incident():
             seconds = abs(seconds2 - seconds1)
             minutes = seconds/60
 
-            # avg_time = str(timedelta(minutes=minutes))
-
             sop_query.insert_one({"Number": open_json_object["records"][i]["number"],
                                   "Ticket_Type": "Incident",
-                                  # "Buisness Time To Resolve(In Minutes)": round(minutes),
                                   "Opened_at": open_json_object["records"][i]["opened_at"],
                                   "State": state_mapping[open_json_object["records"][i]["state"]],
                                   "Assignment_Group": assignment_group_mapping[open_json_object["records"][i]["assignment_group"]],
@@ -763,7 +753,7 @@ def get_incident():
     newvalues3 = {"$set": {"Action_Required": "Assign to L2 Team"}}
     sop_query.update_many(myquery3, newvalues3)
 
-    result = SEND_Mail.find({}, {"_id": 0})
+    result = SmartOpsQueueCollection.find({}, {"_id": 0})
     createexcel('Incident_data.xlsx', result)
     return driver
 
@@ -787,11 +777,9 @@ def get_snow_groups():
 
     print(assignment_group_mapping)
     print(gear_id_mapping)
-   
 
     print("Groups are: ", snow_groups)
     assignments = snow_groups[:-3]
-   
 
     return assignments, assignment_group_mapping, gear_id_mapping
 
@@ -806,41 +794,9 @@ def createexcel(filename, data):
     df = pd.DataFrame(data)
     df.to_excel(filename, index=False)
 
-
-def send_mail(to, subject, body, path1, cc=None):
-    global last_email_send_time
-    try:
-        outlook = win32.Dispatch('outlook.application')
-        mail = outlook.CreateItem(0)
-        mail.Subject = subject
-        mail.HTMLBody = f'{body}'
-        mail.Attachments.Add(path1)
-        # mail.Attachments.Add(path2)
-
-        if isinstance(to, list):
-            mail.To = ";".join(to)
-        else:
-            mail.To = to
-
-        if cc:
-            if isinstance(cc, list):
-                mail.CC = ";".join(cc)
-            else:
-                mail.CC = cc
-
-        mail.Send()
-        last_email_send_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print("Last email sent at:", last_email_send_time)
-
-    except Exception as e:
-        print("Error occ:", e)
-
 path1 = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\Incident_data.xlsx"
 driver = get_incident()
 driver.quit()
 
-send_mail(['Maaz.ahmad@aig.com'], "SmartOPS - Resolved Incidents and Tasks for Feb,March,April",
-          'Hi find the files below', path1)  # path2)
 timestamp_end = time.time()
 print('Time required for execution : ', timestamp_end - timestamp_start)
-#read teh xls file for automation yes or can we search of dsop whos automation is availaible 
