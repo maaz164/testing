@@ -617,3 +617,35 @@ def send_email_with_attachment(subject, body, to, attachment_path):
 
 # Example usage
 test_incident()
+subprocee code for multiple condition-:
+import pandas as pd
+import subprocess
+
+# Load the Excel file
+file_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\runtoall.xlsx"
+df = pd.read_excel(file_path)
+
+# Print the column names
+# print(df.columns)
+
+# Search for the specific value in Sop_Name column and check Automation column
+condition = (df['Sop_Name'] == 'NAM_5219_PDI_UNBIND_REQUEST_DSOP') & (
+    df['Automation'] == 'Yes')
+
+matches = df[condition]
+if matches.empty:
+    print("No matching rows found.")
+
+else:
+    for index, row in matches.iterrows():
+        print(f"Running the python code file for row {index}...")
+        subprocess.run(
+            ["python", r"C:\Users\maahmad\MAAZ\React\React\myapp\build\sharing.py"])
+
+# Check if any row meets the condition
+# if df[condition].empty:
+#     print("No matching rows found.")
+# else:
+#     print("Matching row found. Running the Python code file...")
+#     # Run the Python code file
+#     subprocess.run(["python", r"C:\Users\maahmad\MAAZ\React\React\myapp\build\sharing.py"])
