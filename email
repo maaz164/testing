@@ -625,27 +625,20 @@ import subprocess
 file_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\runtoall.xlsx"
 df = pd.read_excel(file_path)
 
-# Print the column names
-# print(df.columns)
+# Define a dictionary with conditions and corresponding scripts
+condition_scripts = {
+    'NAM_5219_PDI_UNBIND_REQUEST_DSOP': r"C:\Users\maahmad\MAAZ\React\React\myapp\build\sharing.py",
+    'ANOTHER_CONDITION': r"C:\path\to\another_script.py"
+    # Add more conditions and scripts as needed
+}
 
-# Search for the specific value in Sop_Name column and check Automation column
-condition = (df['Sop_Name'] == 'NAM_5219_PDI_UNBIND_REQUEST_DSOP') & (
-    df['Automation'] == 'Yes')
-
-matches = df[condition]
-if matches.empty:
-    print("No matching rows found.")
-
-else:
-    for index, row in matches.iterrows():
-        print(f"Running the python code file for row {index}...")
-        subprocess.run(
-            ["python", r"C:\Users\maahmad\MAAZ\React\React\myapp\build\sharing.py"])
-
-# Check if any row meets the condition
-# if df[condition].empty:
-#     print("No matching rows found.")
-# else:
-#     print("Matching row found. Running the Python code file...")
-#     # Run the Python code file
-#     subprocess.run(["python", r"C:\Users\maahmad\MAAZ\React\React\myapp\build\sharing.py"])
+# Iterate through the DataFrame and run the appropriate script for each matched condition
+for sop_name, script_path in condition_scripts.items():
+    condition = (df['Sop_Name'] == sop_name) & (df['Automation'] == 'Yes')
+    matches = df[condition]
+    if matches.empty:
+        print(f"No matching rows found for {sop_name}.")
+    else:
+        for index, row in matches.iterrows():
+            print(f"Running the python code file for row {index} with Sop_Name {sop_name}...")
+            subprocess.run(["python", script_path]).in this code what will happen if diffrent condition meet multiple time
