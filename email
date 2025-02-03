@@ -935,7 +935,6 @@ import re
 import cx_Oracle
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
@@ -1080,6 +1079,7 @@ def execute_sql_query(scenario_id):
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 
+        print(f"Executing SQL query with SCENARIO_ID: {scenario_id}")
         sql_query = f"SELECT SCENARIO_ID, DLTD_IN, POL_STAT_TYP FROM GLMS_GPPolicy_Prod..TBATCH_LOG WHERE SCENARIO_ID = {scenario_id};"
         cursor.execute(sql_query)
 
@@ -1125,6 +1125,7 @@ def execute_oracle_query(scenario_id):
 
         cursor = connection.cursor()
 
+        print(f"Executing Oracle query with SCENARIO_ID: {scenario_id}")
         query = f"""
         SELECT DIM_POL_ID, PRIOR_DIM_POL_ID, POL_STAT, POL_ID, SRC_KY
         FROM GXRDSDW.DIM_POLICY
