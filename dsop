@@ -194,6 +194,206 @@ finally: #run always, if pop up or not no issue
                 pricing.click()
 
                 time.sleep(10)
+
+code2------
+
+import time
+import pdfkit
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+options = Options()
+options.add_argument("--window-size=1920,1080")
+driver = webdriver.Chrome(options=options)
+driver.maximize_window()
+
+policy_no = "4416686"
+vin = "5HTAM4522B7H75631"
+task_id = "3806601"
+driver.switch_to.new_window('tab')
+driver.get("https://debug.scupdcodpreprod.aig.net/policy/default.aspx")
+print("policy debugger")
+
+WebDriverWait(driver, 80).until(
+    EC.presence_of_element_located((By.ID, "username-inputEl"))
+)
+debugger_user = driver.find_element(By.ID, "username-inputEl")
+debugger_user.send_keys("AIGAdmin")
+
+WebDriverWait(driver, 80).until(
+    EC.presence_of_element_located((By.ID, "password-inputEl"))
+)
+debugger_pwd = driver.find_element(By.ID, "password-inputEl")
+debugger_pwd.send_keys("b4%hcg$6eP")
+
+WebDriverWait(driver, 80).until(
+    EC.presence_of_element_located((By.XPATH, "//a[@role='button' and @name='home']"))
+)
+debugger_login_button = driver.find_element(By.XPATH, "//a[@role='button' and @name='home']")
+debugger_login_button.click()
+time.sleep(1)
+
+WebDriverWait(driver, 80).until(
+    EC.presence_of_element_located((By.ID, "quickSearchTextId-inputEl"))
+)
+debugger_policy_no = driver.find_element(By.ID, "quickSearchTextId-inputEl")
+debugger_policy_no.send_keys(policy_no + Keys.ENTER)
+time.sleep(1)
+record_index = 4
+print("Record index:   ", record_index, "type:   ", type(record_index))
+
+WebDriverWait(driver, 80).until(
+    EC.presence_of_element_located((By.XPATH, f"//table[@data-recordindex='{record_index}']//a[@id='quoteListLoadQuoteA']"))
+)
+debugger_magnifier = driver.find_element(By.XPATH, f"//table[@data-recordindex='{record_index}']//a[@id='quoteListLoadQuoteA']")
+driver.execute_script("arguments[0].click();", debugger_magnifier)
+time.sleep(1)
+
+WebDriverWait(driver, 80).until(
+    EC.presence_of_element_located((By.XPATH, "//img[@title='Edit Policy']"))
+)
+edit = driver.find_element(By.XPATH, "//img[@title='Edit Policy']")
+driver.execute_script("arguments[0].click();", edit)
+time.sleep(1)
+
+try:
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, "//span[@id='button-1006-btnInnerEl' and text()='Yes']"))
+    )
+    popup_yes = driver.find_element(By.XPATH, "//span[@id='button-1006-btnInnerEl' and text()='Yes']")
+    popup_yes.click()
+    time.sleep(1)
+finally:
+    WebDriverWait(driver, 80).until(
+        EC.presence_of_element_located((By.XPATH, "//a[text()='Risk Schedule']"))
+    )
+    risk_schedule = driver.find_element(By.XPATH, "//a[text()='Risk Schedule']")
+    risk_schedule.click()
+
+    WebDriverWait(driver, 80).until(
+        EC.presence_of_element_located((By.XPATH, "//input[@type='hidden' and @name='boolean_27A']"))
+    )
+    yes_no = driver.find_element(By.XPATH, "//input[@type='hidden' and @name='boolean_27A']")
+    yes_no_value = yes_no.get_attribute("value")
+    print(yes_no_value)
+    if yes_no_value == "0":
+        print("yes")
+
+        WebDriverWait(driver, 80).until(
+            EC.presence_of_element_located((By.XPATH, "//div[@id='f_lD8FF0EC9E1364D229CCA76F2F5D3831327A_3_1-trigger-picker']"))
+        )
+        yes_no_dropdown = driver.find_element(By.XPATH, "//div[@id='f_lD8FF0EC9E1364D229CCA76F2F5D3831327A_3_1-trigger-picker']")
+        yes_no_dropdown.click()
+        WebDriverWait(driver, 80).until(
+            EC.presence_of_element_located((By.XPATH, "//li[@class='x-boundlist-item' and @data-qtip='Yes']"))
+        )
+        yes_option = driver.find_element(By.XPATH, "//li[@class='x-boundlist-item' and @data-qtip='Yes']")
+        yes_option.click()
+
+    time.sleep(5)
+
+    WebDriverWait(driver, 80).until(
+        EC.presence_of_element_located((By.XPATH, "//a[@role='button'and @data-qtip='Last Page']"))
+    )
+    last_page_btn = driver.find_element(By.XPATH, "//a[@role='button'and @data-qtip='Last Page']")
+    driver.execute_script("arguments[0].click();", last_page_btn)
+
+    time.sleep(5)
+
+    WebDriverWait(driver, 80).until(
+        EC.presence_of_element_located((By.XPATH, "//span[text()='Risk #']"))
+    )
+    risk_header_columnid = driver.find_element(By.XPATH, "//span[text()='Risk #']").get_attribute('id')
+
+    time.sleep(5)
+
+    WebDriverWait(driver, 80).until(
+        EC.presence_of_element_located((By.XPATH, "//span[text()='OTC Ded*']"))
+    )
+    otc_header_columnid = driver.find_element(By.XPATH, "//span[text()='OTC Ded*']").get_attribute('id')
+
+    time.sleep(5)
+
+    WebDriverWait(driver, 80).until(
+        EC.presence_of_element_located((By.XPATH, "//span[text()='CL Ded*']"))
+    )
+    collision_header_columnid = driver.find_element(By.XPATH, "//span[text()='CL Ded*']").get_attribute('id')
+
+    deductible_amt = "2,000"
+    time.sleep(2)
+
+    WebDriverWait(driver, 80).until(
+        EC.presence_of_element_located((By.XPATH, "//div[@class = 'x-grid-item-container']//table"))
+    )
+    risk_schedule_table = driver.find_elements(By.XPATH, "//div[@class = 'x-grid-item-container']//table")
+
+    prvious_url = driver.current_url
+    time.sleep(10)
+
+    vin_row_found = -1
+    vin_found = False
+    for vin_row_index, vin_row in enumerate(risk_schedule_table):
+        print("row no: ", vin_row_index)
+        cells = vin_row.find_elements(By.TAG_NAME, "td")
+        for cell_index, cell in enumerate(cells):
+            if vin in cell.text:
+                print(f"Found vin  {vin} == cell {cell.text} in row {vin_row_index}, cell {cell_index}")
+                vin_row_found = vin_row_index
+                vin_found = True
+
+                riskno_index = cell_index - 2
+                riskno_cell = cells[riskno_index]
+                riskno_text = riskno_cell.text
+                print("risk no:", riskno_text)
+                riskno_columnid = riskno_cell.get_attribute('data-columnid')
+                print("risk no column id", riskno_columnid)
+
+                otc_index = cell_index + 5
+                otc_cell = cells[otc_index]
+                otc_text = otc_cell.text
+                otc_column_id = otc_cell.get_attribute('data-columnid')
+                print("otc collision value = ", otc_text)
+                print("otc column id = ", otc_column_id)
+
+                collsion_index = cell_index + 6
+                collision_cell = cells[collsion_index]
+                collision_text = collision_cell.text
+                collision_column_id = collision_cell.get_attribute('data-columnid')
+                print("collision value = ", collision_text)
+                print("collision column id = ", collision_column_id)
+                break
+
+    if otc_column_id in otc_header_columnid and collision_column_id in collision_header_columnid:
+        if otc_text == deductible_amt and collision_text == deductible_amt:
+            print("pricing")
+            WebDriverWait(driver, 80).until(
+                EC.presence_of_element_located((By.XPATH, "//a[text()='Pricing']"))
+            )
+            pricing = driver.find_element(By.XPATH, "//a[text()='Pricing']")
+            pricing.click()
+
+            time.sleep(10)
+
+            WebDriverWait(driver, 80).until(
+                EC.presence_of_element_located((By.XPATH, "//span[text()='Rating Worksheet']"))
+            )
+            rating_wsheet = driver.find_element(By.XPATH, "//span[text()='Rating Worksheet']")
+            driver.execute_script("arguments[0].click();", rating_wsheet)
+
+            print("rating worksheet")
+            time.sleep(10)
+
+            # Convert the ASPX page to PDF
+            aspx_page = driver.page_source
+            pdf_output_path = "rating_worksheet.pdf"
+            pdfkit.from_string(aspx_page, pdf_output_path)
+            print(f"ASPX page converted to PDF and saved as {pdf_output_path}")
+
+driver.quit()
                 
                 WebDriverWait(driver, 80).until(
                     EC.presence_of_element_located((By.XPATH,"//span[text()='Rating Worksheet']"))
