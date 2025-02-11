@@ -1,1221 +1,637 @@
-import re
-import cx_Oracle
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-import time
-import pyodbc
-import os
-from pymongo import MongoClient
-from config import SOP_Filtering
-from selenium.webdriver.common.alert import Alert
-import pandas as pd
-import win32com.client as win32
-import tkinter as tk
-from tkinter import simpledialog
-from datetime import datetime
-
-# Function to get the incident number from the user via a pop-up dialog
-def get_incident_number():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
-    incident_number = simpledialog.askstring("Input", "Please enter the Incident Number:")
-    return incident_number
-
-def test_incident():
-    try:
-        # Get the incident number from the user if not passed in data
-        incident_number = get_incident_number()
-
-        if not incident_number:
-            print("Incident number not provided.")
-            return []
-
-        options = Options()
-        options.add_argument("--window-size=1920,1080")
-        driver = webdriver.Chrome(options=options)
-        driver.maximize_window()
-        url = f"https://aig.service-now.com/nav_to.do?uri=%2Fincident.do%3Fsysparm_query%3Dnumber%3D{incident_number}"
-        driver.get(url)
-        time.sleep(10)
-        print(f"Navigated to incident number: {incident_number}")
-
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "gsft_main"))
-        )
-        driver.switch_to.frame("gsft_main")  
-        print("found")
-
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "incident.description"))
-        )
-        description_element = driver.find_element(By.ID, "incident.description")
-        textarea_value = description_element.get_attribute("value")
-        print("Description:", textarea_value)
-
-        scenario_id_pattern = r"SCENARIO_ID\s*=\s*(\d+)"
-        match = re.search(scenario_id_pattern, textarea_value)
-       
-        if match:
-            scenario_id = match.group(1)
-            print(f"Found SCENARIO_ID: {scenario_id}")
-
-            table1_data, table2_data = execute_sql_query(scenario_id)
-        else:
-            print("No SCENARIO_ID found in the description.")
-            # Prompt the user for SCENARIO_ID
-            driver.execute_script("alert('Please enter the SCENARIO_ID');")
-            alert = Alert(driver)
-            scenario_id = alert.text
-            alert.accept()
-            print(f"User provided SCENARIO_ID: {scenario_id}")
-            table1_data, table2_data = execute_sql_query(scenario_id)
-            
-        # Save table1_data to an Excel file
-        if len(table1_data) >= 1:
-            save_to_excel(table1_data, "table1_data.xlsx")
-
-            # Send the Excel file via email
-            subject = "Incident Details"
-            app_snow = "Your App/SNOW Value"  # Replace with actual value
-            group = "Your Group Value"  # Replace with actual value
-            diagnostic_sop = "Your Diagnostic SOP Value"  # Replace with actual value
-            resolution_sop = "Your Resolution SOP Value"  # Replace with actual value
-            body = create_email_body(incident_number, app_snow, group, diagnostic_sop, resolution_sop, "table1_data.xlsx")
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        table1_data, table2_data = [], []
-    finally:
-        driver.quit()
-        if len(table1_data) == 0:
-            print("table data is empty")
-            table1_data.append({
-               "GEARID":"5219",
-               "FilteredDiagnosticSOPID":"NA",
-               "Boundarycond1":"NA",
-               "Statevar1":"NA",
-               "Boundarycond2":"NA",
-               "Statevar2":"NA",
-               "Boundarycond3":"NA",
-               "Statevar3":"NA",
-               "Boundarycond4":"NA",
-               "Statevar4":"NA",
-               "Boundarycond5":"NA",
-               "Statevar5":"NA",
-               "Boundarycond6":"NA",
-               "Statevar6":"NA",
-               "Boundarycond7":"NA",
-               "Statevar7":"NA",
-               "ResolutionSOPID":"Assign to L2"
-           })
-            save_to_excel(table1_data, "table1_data.xlsx")
-
-            # Send the Excel file via email
-            subject = "Incident Details"
-            app_snow = "Your App/SNOW Value"  # Replace with actual value
-            group = "Your Group Value"  # Replace with actual value
-            diagnostic_sop = "Your Diagnostic SOP Value"  # Replace with actual value
-            resolution_sop = "Your Resolution SOP Value"  # Replace with actual value
-            body = create_email_body(incident_number, app_snow, group, diagnostic_sop, resolution_sop, "table1_data.xlsx")
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
-        return table1_data, table2_data
-
-def execute_sql_query(scenario_id):
-    try:
-        rsop_value = ""
-
-        conn_str = (
-            r'DRIVER={ODBC Driver 17 for SQL Server};'
-            r'SERVER=PWGIDSGLSQ001,50110;'  
-            r'DATABASE=GLMS_GPPolicy_Prod;'
-            r'Trusted_Connection=yes;'
-            r'Connection Timeout=60;'
-            r'MultiSubnetFailover=yes;'
-        )
-
-        conn = pyodbc.connect(conn_str)
-        cursor = conn.cursor()
-
-        sql_query = f"SELECT SCENARIO_ID, DLTD_IN, POL_STAT_TYP FROM GLMS_GPPolicy_Prod..TBATCH_LOG WHERE SCENARIO_ID = {scenario_id};"
-        cursor.execute(sql_query)
-
-        result = cursor.fetchone()
-       
-        if result and result.DLTD_IN == 'Y' and result.POL_STAT_TYP == 'Canceled':
-            print(result)
-            rsop_value = execute_oracle_query(scenario_id)
-        else:
-            print("DLTD_IN IS NOT = Y AND POL_STAT_TYP IS NOT = CANCELED")
-
-        cursor.close()
-        conn.close()
-
-    except pyodbc.Error as e:
-        print(f"Database error: {e}")
-        rsop_value = "error occurred"
-       
-    finally:
-        rsop = list(SOP_Filtering.find({ "GEARID": 5219, "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP"}, {"_id": 0}))
-        for a in rsop:
-            if a["ResolutionSOPID"] == rsop_value:
-                a["highlight"] = "True"
-            else:
-                a["highlight"] = "False"
-       
-        highlighted_rsop = [a for a in rsop if a["highlight"] == "True"]
-        if highlighted_rsop:
-            highlighted_rsop = highlighted_rsop[0]
-        else:
-            highlighted_rsop = {}
-       
-        print(highlighted_rsop)
-        return [highlighted_rsop], []  # Ensure the return value is always a list
-
-def execute_oracle_query(scenario_id):
-    try:
-        os.environ['PATH'] = r'C:\Users\maahmad\Downloads\instantclient-basiclite-windows.x64-21.15.0.0.0dbru\instantclient_21_15' + ";" + os.environ['PATH']
-
-        dsn_tns = cx_Oracle.makedsn('aigabec902-scan.r1-core.r1.aig.net', '1521', service_name='SGIGESP')
-        connection = cx_Oracle.connect(user='MAAHMAD', password='EDAHCF9a=4b#CELI', dsn=dsn_tns)
-       
-        cursor = connection.cursor()
-
-        query = f"""
-        SELECT DIM_POL_ID, PRIOR_DIM_POL_ID, POL_STAT, POL_ID, SRC_KY
-        FROM GXRDSDW.DIM_POLICY
-        WHERE SRC = 'GLMS' AND SRC_KY = '{scenario_id}'
-        """
-       
-        cursor.execute(query)
-        result = cursor.fetchall()
-
-        for row in result:
-            prior_dim_pol_id = row[1] if row[1] is not None else 'NULL'
-            print(f"DIM_POL_ID: {row[0]}, PRIOR_DIM_POL_ID: {prior_dim_pol_id}, POL_STAT: {row[2]}, POL_ID: {row[3]}")
-
-            if prior_dim_pol_id == 'NULL' and row[2] == 'UNBOUND':
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P1"
-            elif prior_dim_pol_id == 'not null' and row[2] == 'BOUND':  
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P2"
-            else:
-                rsop_value = "Assign to l2"
-       
-        cursor.close()
-        connection.close()
-        return rsop_value
-
-    except cx_Oracle.DatabaseError as e:
-        error, = e.args
-        print(f"Oracle-Error-Code: {error.code}")
-        print(f"Oracle-Error-Message: {error.message}")
-    finally:
-        return rsop_value
-
-def update_mongodb(scenario_id):
-    try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['NeuroDB_testing']
-        collection = db['SOP_Filtering']
-
-        filter_query = {
-            "GEARID": 5219,
-            "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP",
-            "Boundarycond3": "BOUND",
-            "Boundarycond4": "Is null",
-        }
-
-        update_query = {
-            "$set": {"highlight": "True"}
-        }
-
-        result = collection.update_many(filter_query, update_query)
-        print(filter_query)
-        print(update_query)
-        print(f"Matched {result.matched_count} documents and modified {result.modified_count} documents.")
-
-    except Exception as e:
-        print(f"MongoDB error: {e}")
-
-def save_to_excel(data, filename):
-    # Convert the data to a DataFrame
-    df = pd.DataFrame(data)
-   
-    # Save the DataFrame to an Excel file
-    df.to_excel(filename, index=False)
-
-def create_email_body(incident_number, app_snow, group, diagnostic_sop, resolution_sop, attachment_filename):
-    # Get the current date
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    
-    # Create the HTML table
-    html_table = f"""
-    <html>
-        <body>
-            <p>Please find the incident details below:</p>
-            <table border="1">
-                <tr>
-                    <th>Date</th>
-                    <th>Incident</th>
-                    <th>App/SNOW</th>
-                    <th>Group</th>
-                    <th>Diagnostic SOP</th>
-                    <th>Resolution SOP</th>
-                    <th>Diagnostics Info</th>
-                </tr>
-                <tr>
-                    <td>{current_date}</td>
-                    <td>{incident_number}</td>
-                    <td>{app_snow}</td>
-                    <td>{group}</td>
-                    <td>{diagnostic_sop}</td>
-                    <td>{resolution_sop}</td>
-                    <td>{attachment_filename}</td>
-                </tr>
-            </table>
-        </body>
-    </html>
-    """
-    return html_table
-
-def send_email_with_attachment(subject, body, to, attachment_path):
-    # Create an instance of the Outlook application
-    outlook = win32.Dispatch('outlook.application')
-   
-    # Create a new email
-    mail = outlook.CreateItem(0)
-   
-    # Set email attributes
-    mail.Subject = subject
-    mail.HTMLBody = body
-    mail.To = to
-   
-    # Attach the file
-    mail.Attachments.Add(attachment_path)
-   
-    # Send the email
-    mail.Send()
-   
-    print(f"Email sent to {to} with attachment {attachment_path}")
-
-# Example usage
-test_incident()
-2---:
-import re
-import cx_Oracle
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-import time
-import pyodbc
-import os
-from pymongo import MongoClient
-from config import SOP_Filtering
-from selenium.webdriver.common.alert import Alert
-import pandas as pd
-import win32com.client as win32
-import tkinter as tk
-from tkinter import simpledialog
-from datetime import datetime
-
-# Function to get the incident number from the user via a pop-up dialog
-def get_incident_number():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
-    incident_number = simpledialog.askstring("Input", "Please enter the Incident Number:")
-    return incident_number
-
-def test_incident():
-    try:
-        # Get the incident number from the user if not passed in data
-        incident_number = get_incident_number()
-
-        if not incident_number:
-            print("Incident number not provided.")
-            return []
-
-        options = Options()
-        options.add_argument("--window-size=1920,1080")
-        driver = webdriver.Chrome(options=options)
-        driver.maximize_window()
-        url = f"https://aig.service-now.com/nav_to.do?uri=%2Fincident.do%3Fsysparm_query%3Dnumber%3D{incident_number}"
-        driver.get(url)
-        time.sleep(10)
-        print(f"Navigated to incident number: {incident_number}")
-
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "gsft_main"))
-        )
-        driver.switch_to.frame("gsft_main")  
-        print("found")
-
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "incident.description"))
-        )
-        description_element = driver.find_element(By.ID, "incident.description")
-        textarea_value = description_element.get_attribute("value")
-        print("Description:", textarea_value)
-
-        scenario_id_pattern = r"SCENARIO_ID\s*=\s*(\d+)"
-        match = re.search(scenario_id_pattern, textarea_value)
-       
-        if match:
-            scenario_id = match.group(1)
-            print(f"Found SCENARIO_ID: {scenario_id}")
-
-            table1_data, table2_data = execute_sql_query(scenario_id)
-        else:
-            print("No SCENARIO_ID found in the description.")
-            # Prompt the user for SCENARIO_ID
-            driver.execute_script("alert('Please enter the SCENARIO_ID');")
-            alert = Alert(driver)
-            scenario_id = alert.text
-            alert.accept()
-            print(f"User provided SCENARIO_ID: {scenario_id}")
-            table1_data, table2_data = execute_sql_query(scenario_id)
-            
-        # Save table1_data to an Excel file
-        if len(table1_data) >= 1:
-            save_to_excel(table1_data, "table1_data.xlsx")
-
-            # Send the Excel file via email
-            subject = "Incident Details"
-            app_snow = "Your App/SNOW Value"  # Replace with actual value
-            group = "Your Group Value"  # Replace with actual value
-            diagnostic_sop = "Your Diagnostic SOP Value"  # Replace with actual value
-            body = create_email_body(incident_number, app_snow, group, diagnostic_sop, table1_data[0]["ResolutionSOPID"], "table1_data.xlsx")
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        table1_data, table2_data = [], []
-    finally:
-        driver.quit()
-        if len(table1_data) == 0:
-            print("table data is empty")
-            table1_data.append({
-               "GEARID":"5219",
-               "FilteredDiagnosticSOPID":"NA",
-               "Boundarycond1":"NA",
-               "Statevar1":"NA",
-               "Boundarycond2":"NA",
-               "Statevar2":"NA",
-               "Boundarycond3":"NA",
-               "Statevar3":"NA",
-               "Boundarycond4":"NA",
-               "Statevar4":"NA",
-               "Boundarycond5":"NA",
-               "Statevar5":"NA",
-               "Boundarycond6":"NA",
-               "Statevar6":"NA",
-               "Boundarycond7":"NA",
-               "Statevar7":"NA",
-               "ResolutionSOPID":"Assign to L2"
-           })
-            save_to_excel(table1_data, "table1_data.xlsx")
-
-            # Send the Excel file via email
-            subject = "Incident Details"
-            app_snow = "Your App/SNOW Value"  # Replace with actual value
-            group = "Your Group Value"  # Replace with actual value
-            diagnostic_sop = "Your Diagnostic SOP Value"  # Replace with actual value
-            body = create_email_body(incident_number, app_snow, group, diagnostic_sop, table1_data[0]["ResolutionSOPID"], "table1_data.xlsx")
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
-        return table1_data, table2_data
-
-def execute_sql_query(scenario_id):
-    try:
-        rsop_value = ""
-
-        conn_str = (
-            r'DRIVER={ODBC Driver 17 for SQL Server};'
-            r'SERVER=PWGIDSGLSQ001,50110;'  
-            r'DATABASE=GLMS_GPPolicy_Prod;'
-            r'Trusted_Connection=yes;'
-            r'Connection Timeout=60;'
-            r'MultiSubnetFailover=yes;'
-        )
-
-        conn = pyodbc.connect(conn_str)
-        cursor = conn.cursor()
-
-        sql_query = f"SELECT SCENARIO_ID, DLTD_IN, POL_STAT_TYP FROM GLMS_GPPolicy_Prod..TBATCH_LOG WHERE SCENARIO_ID = {scenario_id};"
-        cursor.execute(sql_query)
-
-        result = cursor.fetchone()
-       
-        if result and result.DLTD_IN == 'Y' and result.POL_STAT_TYP == 'Canceled':
-            print(result)
-            rsop_value = execute_oracle_query(scenario_id)
-        else:
-            print("DLTD_IN IS NOT = Y AND POL_STAT_TYP IS NOT = CANCELED")
-
-        cursor.close()
-        conn.close()
-
-    except pyodbc.Error as e:
-        print(f"Database error: {e}")
-        rsop_value = "error occurred"
-       
-    finally:
-        rsop = list(SOP_Filtering.find({ "GEARID": 5219, "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP"}, {"_id": 0}))
-        for a in rsop:
-            if a["ResolutionSOPID"] == rsop_value:
-                a["highlight"] = "True"
-            else:
-                a["highlight"] = "False"
-       
-        highlighted_rsop = [a for a in rsop if a["highlight"] == "True"]
-        if highlighted_rsop:
-            highlighted_rsop = highlighted_rsop[0]
-        else:
-            highlighted_rsop = {}
-       
-        print(highlighted_rsop)
-        return [highlighted_rsop], []  # Ensure the return value is always a list
-
-def execute_oracle_query(scenario_id):
-    try:
-        os.environ['PATH'] = r'C:\Users\maahmad\Downloads\instantclient-basiclite-windows.x64-21.15.0.0.0dbru\instantclient_21_15' + ";" + os.environ['PATH']
-
-        dsn_tns = cx_Oracle.makedsn('aigabec902-scan.r1-core.r1.aig.net', '1521', service_name='SGIGESP')
-        connection = cx_Oracle.connect(user='MAAHMAD', password='EDAHCF9a=4b#CELI', dsn=dsn_tns)
-       
-        cursor = connection.cursor()
-
-        query = f"""
-        SELECT DIM_POL_ID, PRIOR_DIM_POL_ID, POL_STAT, POL_ID, SRC_KY
-        FROM GXRDSDW.DIM_POLICY
-        WHERE SRC = 'GLMS' AND SRC_KY = '{scenario_id}'
-        """
-       
-        cursor.execute(query)
-        result = cursor.fetchall()
-
-        for row in result:
-            prior_dim_pol_id = row[1] if row[1] is not None else 'NULL'
-            print(f"DIM_POL_ID: {row[0]}, PRIOR_DIM_POL_ID: {prior_dim_pol_id}, POL_STAT: {row[2]}, POL_ID: {row[3]}")
-
-            if prior_dim_pol_id == 'NULL' and row[2] == 'UNBOUND':
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P1"
-            elif prior_dim_pol_id == 'not null' and row[2] == 'BOUND':  
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P2"
-            else:
-                rsop_value = "Assign to l2"
-       
-        cursor.close()
-        connection.close()
-        return rsop_value
-
-    except cx_Oracle.DatabaseError as e:
-        error, = e.args
-        print(f"Oracle-Error-Code: {error.code}")
-        print(f"Oracle-Error-Message: {error.message}")
-    finally:
-        return rsop_value
-
-def update_mongodb(scenario_id):
-    try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['NeuroDB_testing']
-        collection = db['SOP_Filtering']
-
-        filter_query = {
-            "GEARID": 5219,
-            "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP",
-            "Boundarycond3": "BOUND",
-            "Boundarycond4": "Is null",
-        }
-
-        update_query = {
-            "$set": {"highlight": "True"}
-        }
-
-        result = collection.update_many(filter_query, update_query)
-        print(filter_query)
-        print(update_query)
-        print(f"Matched {result.matched_count} documents and modified {result.modified_count} documents.")
-
-    except Exception as e:
-        print(f"MongoDB error: {e}")
-
-def save_to_excel(data, filename):
-    # Convert the data to a DataFrame
-    df = pd.DataFrame(data)
-   
-    # Save the DataFrame to an Excel file
-    df.to_excel(filename, index=False)
-
-def create_email_body(incident_number, app_snow, group, diagnostic_sop, resolution_sop, attachment_filename):
-    # Get the current date
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    
-    # Create the HTML table
-    html_table = f"""
-    <html>
-        <body>
-            <p>Please find the incident details below:</p>
-            <table border="1">
-                <tr>
-                    <th>Date</th>
-                    <th>Incident</th>
-                    <th>App/SNOW</th>
-                    <th>Group</th>
-                    <th>Diagnostic SOP</th>
-                    <th>Resolution SOP</th>
-                    <th>Diagnostics Info</th>
-                </tr>
-                <tr>
-                    <td>{current_date}</td>
-                    <td>{incident_number}</td>
-                    <td>{app_snow}</td>
-                    <td>{group}</td>
-                    <td>{diagnostic_sop}</td>
-                    <td>{resolution_sop}</td>
-                    <td>{attachment_filename}</td>
-                </tr>
-            </table>
-        </body>
-    </html>
-    """
-    return html_table
-
-def send_email_with_attachment(subject, body, to, attachment_path):
-    # Create an instance of the Outlook application
-    outlook = win32.Dispatch('outlook.application')
-   
-    # Create a new email
-    mail = outlook.CreateItem(0)
-   
-    # Set email attributes
-    mail.Subject = subject
-    mail.HTMLBody = body
-    mail.To = to
-   
-    # Attach the file
-    mail.Attachments.Add(attachment_path)
-   
-    # Send the email
-    mail.Send()
-   
-    print(f"Email sent to {to} with attachment {attachment_path}")
-
-# Example usage
-test_incident()
-subprocee code for multiple condition-:
-import pandas as pd
+import json
+from flask.wrappers import Response
 import subprocess
-
-# Load the Excel file
-file_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\runtoall.xlsx"
-df = pd.read_excel(file_path)
-
-# Define a dictionary with conditions and corresponding scripts
-condition_scripts = {
-    'NAM_5219_PDI_UNBIND_REQUEST_DSOP': r"C:\Users\maahmad\MAAZ\React\React\myapp\build\sharing.py",
-    'ANOTHER_CONDITION': r"C:\path\to\another_script.py"
-    # Add more conditions and scripts as needed
-}
-
-# Iterate through the DataFrame and run the appropriate script for each matched condition
-for sop_name, script_path in condition_scripts.items():
-    condition = (df['Sop_Name'] == sop_name) & (df['Automation'] == 'Yes')
-    matches = df[condition]
-    if matches.empty:
-        print(f"No matching rows found for {sop_name}.")
-    else:
-        for index, row in matches.iterrows():
-            print(f"Running the python code file for row {index} with Sop_Name {sop_name}...")
-            subprocess.run(["python", script_path]).in this code what will happen if diffrent condition meet multiple time
-Tejas-:
-import re
-import cx_Oracle
+import os
+import SmartQueue
+from flask import Flask, request
+from flask import Flask, render_template, jsonify
+import pymongo
+import DiagonosticSOP
+from config import Resolved_Dump, Tdump_collection, applications_collection, server_collection, tsm_collection, SOP_collection, SmartOpsQueueCollection, AddSOP_list
+from pymongo import MongoClient
+import pandas as pd
+import time
 from selenium import webdriver
-from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-import time
-import pyodbc
-import os
-from pymongo import MongoClient
-from config import SOP_Filtering
-from selenium.webdriver.common.alert import Alert
-import pandas as pd
-import win32com.client as win32
-import tkinter as tk
-from tkinter import simpledialog
+from createincident import create_incident
+from APAC_1217_HK_MOTIS_PAYMENT_STATUS_DSOP_1 import Execute_ResolutionSOP, SOP_Filtering, getsopdetails
+from NAM_5122_PC_Memory_Utilization_DSOP import src,test
+from check_navigation import checknav
+from update_nav import UpdateNavigation
+from SmartopsKPI import smartopskpidata, get_resolved_incidents
+from SmartopsKPIsr import run_KPI
+from NAM_5219_UNBIND_REQUEST_DSOP import test_incident
 
 
-# Function to get the incident number from the user via a pop-up dialog
-def get_incident_number():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
-    incident_number = simpledialog.askstring("Input", "Please enter the Incident Number:")
-    return incident_number
+app = Flask(__name__)
 
 
-def test_incident():
-    try:
-        # Get the incident number from the user if not passed in data
-        incident_number =  get_incident_number()
+def Count_of_Apps():
+    Ali = []
+    for doc in applications_collection.find({"Cognizant Scope": "In-Scope"}):
+        Ali.append(doc)
+    No_of_Apps = len(Ali)
+    return No_of_Apps
 
-        if not incident_number:
-            print("Incident number not provided.")
-            return []
 
-        options = Options()
-        options.add_argument("--window-size=1920,1080")
-        driver = webdriver.Chrome(options=options)
-        driver.maximize_window()
-        url = f"https://aig.service-now.com/nav_to.do?uri=%2Fincident.do%3Fsysparm_query%3Dnumber%3D{incident_number}"
-        driver.get(url)
-        time.sleep(10)
-        print(f"Navigated to incident number: {incident_number}")
+def Monitored_apps():
+    li = []
+    for doc in applications_collection.find({"Monitoring ": "Y"}):
+        li.append(doc)
+    num_of_Monitored = len(li)
+    total = Count_of_Apps()
+    percent = round((num_of_Monitored/total)*100)
+    return percent
 
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "gsft_main"))
-        )
-        driver.switch_to.frame("gsft_main")  
-        print("found")
 
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "incident.description"))
-        )
-        description_element = driver.find_element(By.ID, "incident.description")
-        textarea_value = description_element.get_attribute("value")
-        print("Description:", textarea_value)
+def critical_apps():
+    critical_list = []
+    for doc in applications_collection.find({"Business Critical": "Low"}):
+        critical_list.append(doc)
+    No_of_Critical_apps = len(critical_list)
+    return No_of_Critical_apps
 
-        scenario_id_pattern = r"SCENARIO_ID\s*=\s*(\d+)"
-        match = re.search(scenario_id_pattern, textarea_value)
-       
-        if match:
-            scenario_id = match.group(1)
-            print(f"Found SCENARIO_ID: {scenario_id}")
+# We are getting total number of open ticket using State field from "Tdump" collection from NeuroDB database with all the possible as well as availabe inputs
 
-            table1_data, table2_data = execute_sql_query(scenario_id)
-        else:
-            print("No SCENARIO_ID found in the description.")
-            # Prompt the user for SCENARIO_ID
-            driver.execute_script("alert('Please enter the SCENARIO_ID');")
-            alert = Alert(driver)
-            scenario_id = alert.text
-            alert.accept()
-            print(f"User provided SCENARIO_ID: {scenario_id}")
-            table1_data, table2_data = execute_sql_query(scenario_id)
-            
-        # if len(table1_data) == 0:
-        #    print("table data is empty")
-        #    table1_data.append({
-        #        "GEARID":"5219",
-        #        "ResolutionSOPID":"Assign to L2"
-        #    })
 
-        # Save table1_data to an Excel file
-        if len(table1_data[0]) >= 1:
-            save_to_excel(table1_data, "table1_data.xlsx")
+def open_ticket():
+    valid_state = ["New", "On Hold", "In Progress"]
+    open_ticket_list = []
+    for doc in Tdump_collection.find({"State": {"$in": valid_state}}):
+        open_ticket_list.append(doc)
+    return len(open_ticket_list)
 
-            # Send the Excel file via email
-            subject = "Table1 Data"
-            body = "Please find the attached file containing Table1 data."
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
 
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        table1_data, table2_data = [], []
-    finally:
-        driver.quit()
-        if len(table1_data[0]) == 0:
-            print("table data is empty")
-            table1_data.pop()
-            table1_data.append({
-               "GEARID":"5219",
-               "FilteredDiagnosticSOPID":"NA",
-               "Boundarycond1":"NA",
-               "Statevar1":"NA",
-               "Boundarycond2":"NA",
-               "Statevar2":"NA",
-               "Boundarycond3":"NA",
-               "Statevar3":"NA",
-               "Boundarycond4":"NA",
-               "Statevar4":"NA",
-               "Boundarycond5":"NA",
-               "Statevar5":"NA",
-               "Boundarycond6":"NA",
-               "Statevar6":"NA",
-               "Boundarycond7":"NA",
-               "Statevar7":"NA",
-               "ResolutionSOPID":"Assign to L2"
+def reopen_ticket():
+    reopen_ticket_list = []
+    valid_state = ["New", "On Hold", "In Progress"]
+    for doc in Tdump_collection.find({"State": {"$in": valid_state}, "Resolved": {"$exists": True, "$ne": None}}):
+        reopen_ticket_list.append(doc)
+    return len(reopen_ticket_list)
+
+# We are getting total number of closed ticket using State field from "Tdump" collection from NeuroDB database with all the possible as well as availabe inputs
+
+
+def closed_ticket():
+    valid_state = ["Closed", "Canceled", "Resolved"]
+    closed_ticket_list = []
+    for doc in Tdump_collection.find({"State": {"$in": valid_state}}):
+        closed_ticket_list.append(doc)
+    return len(closed_ticket_list)
+
+
+def tickets():
+    # total_incident = incident()
+    total_open_tickets = open_ticket()
+    total_closed_tickets = closed_ticket()
+    total_tickets = total_open_tickets+total_closed_tickets
+    return total_tickets
+
+
+def incident_percentage():
+    # total_incident = incident()
+    total_open_tickets = open_ticket()
+    Total_tickets = tickets()
+    Tpercent = round((total_open_tickets/Total_tickets)*100)
+    return Tpercent
+
+
+def count_serv(app_name):
+    tsm_data = list(tsm_collection.find(
+        {"Applications": app_name}, {'_id': 0}))
+    mapped_servers = set()
+    for entry in tsm_data:
+        server_name = entry['SName']
+        if server_name not in mapped_servers:
+            mapped_servers.add(server_name)
+    count = len(mapped_servers)
+    return count
+
+
+def calc_cpu(app_name):
+    tsm_data = list(tsm_collection.find(
+        {"Applications": app_name}, {'_id': 0}))
+    mapped_servers = set()
+    for entry in tsm_data:
+        server_name = entry['SName']
+        if server_name not in mapped_servers:
+            mapped_servers.add(server_name)
+    count_apac = len(mapped_servers)
+    cpu_sum = 0
+    for server_name in mapped_servers:
+        server_info = list(server_collection.find({'ServerName': server_name}))
+        cpu_sum += sum([doc['%CPU']for doc in server_info])
+        avg_cpu_utilization = cpu_sum/count_apac
+    return round(avg_cpu_utilization, 2)
+
+
+def calc_mem(app_name):
+    tsm_data = list(tsm_collection.find(
+        {"Applications": app_name}, {'_id': 0}))
+    mapped_servers = set()
+    for entry in tsm_data:
+        server_name = entry['SName']
+        if server_name not in mapped_servers:
+            mapped_servers.add(server_name)
+    count = len(mapped_servers)
+    mem_sum = 0
+    for server_name in mapped_servers:
+        server_info = list(server_collection.find({'ServerName': server_name}))
+        mem_sum += sum([doc['%MEM']for doc in server_info])
+        avg_mem_utilization = mem_sum/count
+    return round(avg_mem_utilization, 2)
+
+
+@app.route('/app_health_data')
+def get_app_health_data():
+    app_names = applications_collection.distinct("Client Segment")
+    data = []
+
+    for app_name in app_names:
+        num_apps = applications_collection.count_documents(
+            {"Client Segment": app_name})
+        server_count = count_serv(app_name)
+        mem_util = calc_mem(app_name)
+        cpu_util = calc_cpu(app_name)
+        data.append({
+                    'Geography': app_name,
+                    'No. of Applications': num_apps,
+                    'Application Status': "",
+                    'Servers': server_count,
+                    'Memory usage': mem_util,
+                    'CPU usage': cpu_util
+                    })
+
+    return jsonify(data)
+
+
+# Route for homepage
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+
+    return render_template('index.html')
+
+
+@app.route('/create_incident')
+def create_new_incident():
+    incident_output = create_incident()
+    return jsonify({'output': incident_output})
+
+
+@app.route('/get_incident', methods=['POST'])
+def get_incident_route():
+    incident_number = request.json.get('incident_number')
+    if incident_number:
+        import getincident
+        getincident.get_incident(incident_number)
+        return jsonify({'message': f"Incident {incident_number} processed successfully"})
+    else:
+        return jsonify({'message': 'Invalid incident number'})
+
+
+@app.route('/data')
+def getData():
+
+    Mon = Monitored_apps()
+    Count = Count_of_Apps()
+    Critical = critical_apps()
+    Topen = open_ticket()
+    Treopen = reopen_ticket()
+    Tclosed = closed_ticket()
+    # Tincident=incident()
+    Tticket = tickets()
+    TIpercent = incident_percentage()
+
+    return {
+
+        "Number_of_Monitored_apps": Mon,
+        "No_of_apps": Count,
+        "No_of_Critical_apps": Critical,
+        "No_of_Open_Ticket": Topen,
+        "No_of_Reopen_Ticket": Treopen,
+        "No_of_Closed_Ticket": Tclosed,
+        # "No_of_Incidents": Tincident,
+        "Total_Ticket": Tticket,
+        "Incident_percent": TIpercent
+
+
+    }
+
+
+def triggerbatchfile(diaSOP, policyNo):
+    parameter1 = " "+diaSOP+" "+policyNo+" "+diaSOP+"_"+policyNo
+    path_batch = "C:\\Users\\maahmad\\MAAZ\\React\\React\\python-3.7.7_v1.3_\\python-3.7.7_v1.3_\\BATCH_FILE\\" + \
+        diaSOP+".bat"+parameter1
+    check_batch_run = os.system(path_batch)
+    print("check batch run", check_batch_run)
+
+
+@app.route('/SOP', methods=['POST'])
+def check_keywords():
+    data = request.json
+    gear_id = int(data["gear_id"])
+    description = data["description"]
+    print(gear_id, description)
+    diagonstic_sop, mandatory_type, automation_available = DiagonosticSOP.check_keywords1(
+        gear_id, description)
+    # print(diagonstic_sop, mandatory_type)
+    return jsonify({"status": True, "diagonstic_sop": diagonstic_sop, "mandatory_type": mandatory_type, "automation_available": automation_available})
+
+
+@app.route('/RSOP', methods=['POST'])
+def check_rsop():
+    data = request.json
+    print(data)
+    gear_id = int(data["gear_id"])
+    diaSOP = data["diaSOP"].replace("SOP name is: ", "").strip()
+    
+    #for all the new automations of different dsop's add your logic in the elif block of the below code 
+    table1_data=[]
+    table2_data=[]
+    
+    if diaSOP == "APAC_1217_HK_MOTIS_PAYMENT_STATUS_DSOP_1":
+        policyNo = data["mandatoryInput"]
+        triggerbatchfile(diaSOP, policyNo)
+        table2_data, table1_data = Execute_ResolutionSOP(policyNo, gear_id, diaSOP)
+    
+    elif diaSOP == "NAM_5219_PDI_UNBIND_REQUEST_DSOP":
+        SCENARIOID = data["mandatoryInput"]
+        #call automation code here
+        print(SCENARIOID)
+        table1_data,table2_data=test_incident(data)
         
-           })
-            save_to_excel(table1_data, "table1_data.xlsx")
-
-            # Send the Excel file via email
-            subject = "Table1 Data"
-            body = "Please find the attached file containing Table1 data."
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
-        return table1_data, table2_data
+    # automation output should be like line 272 dictionary
+    # {"table1_data": table1_data, "table2_data": table2_data} 
+    
+    print({"table1_data": table1_data, "table2_data": table2_data})
+    
+    return jsonify({"table1_data": table1_data, "table2_data": table2_data})
 
 
-def execute_sql_query(scenario_id):
+@app.route('/api/data',
+           methods=['GET'])
+def get_data():
+    SmartQueue.get_incident()
+    data = list(SmartOpsQueueCollection.find(
+        {}, {'_id': 0, }).sort({"sop_available": -1}). limit(300))
+    # print(data)
+    return jsonify(data)
+
+
+@app.route('/api/diagnosticSOPData', methods=['GET'])
+def get_diagnostic_sop_data():
     try:
-        rsop_value = ""
+        data = list(AddSOP_list.find({}, {'_id': 0}))
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-        conn_str = (
-            r'DRIVER={ODBC Driver 17 for SQL Server};'
-            r'SERVER=PWGIDSGLSQ001,50110;'  
-            r'DATABASE=GLMS_GPPolicy_Prod;'
-            r'Trusted_Connection=yes;'
-            r'Connection Timeout=60;'
-            r'MultiSubnetFailover=yes;'
-        )
 
-        conn = pyodbc.connect(conn_str)
-        cursor = conn.cursor()
+@app.route('/api/check/nav', methods=['POST'])
+def check_navig():
+    data = request.json
+    ticketNo = data["ticketNo"]
+    text = "Yes"
+    UpdateNavigation(ticketNo, text)
+    result = checknav()
+    print(result)
+    return jsonify(result)
 
-        sql_query = f"SELECT SCENARIO_ID, DLTD_IN, POL_STAT_TYP FROM GLMS_GPPolicy_Prod..TBATCH_LOG WHERE SCENARIO_ID = {scenario_id};"
-        cursor.execute(sql_query)
 
-        result = cursor.fetchone()
-       
-        if result and result.DLTD_IN == 'Y' and result.POL_STAT_TYP == 'Canceled':
-            print(result)
-            rsop_value = execute_oracle_query(scenario_id)
-        else:
-            print("DLTD_IN IS NOT = Y AND POL_STAT_TYP IS NOT = CANCELED")
+@app.route("/api/manualdata", methods=["POST"])
+def enterdatamanually():
+    data = request.json
+    diasop = data["diasop"].replace("SOP name is:", "").strip()
+    print(diasop)
+    query = {"FilteredDiagnosticSOPID": diasop}
+    results = list(SOP_Filtering.find(query, {"_id": 0, "ApplicationName": 0, "Keyword": 0, "Category1": 0,
+                   "Category2": 0, "Category3": 0, "MandatoryInformation": 0, "CommonDescriptionofSOP": 0}))
+    # print(results)
+    for result in results:
+        boundcond1 = result["Boundarycond1"]
+        boundcond2 = result["Boundarycond2"]
+        boundcond3 = result["Boundarycond3"]
+        boundcond4 = result["Boundarycond4"]
+        boundcond5 = result["Boundarycond5"]
+        boundcond6 = result["Boundarycond6"]
+        boundcond7 = result["Boundarycond7"]
+        statevar1 = result["Statevar1"]
+        statevar2 = result["Statevar2"]
+        statevar3 = result["Statevar3"]
+        statevar4 = result["Statevar4"]
+        statevar5 = result["Statevar5"]
+        statevar6 = result["Statevar6"]
+        statevar7 = result["Statevar7"]
 
-        cursor.close()
-        conn.close()
+        if isinstance(boundcond1, int):
+            bouncond1 = str(boundcond1)
 
-    except pyodbc.Error as e:
-        print(f"Database error: {e}")
-        rsop_value = "error occurred"
-       
-    finally:
-        rsop = list(SOP_Filtering.find({ "GEARID": 5219, "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP"}, {"_id": 0}))
-        for a in rsop:
-            if a["ResolutionSOPID"] == rsop_value:
-                a["highlight"] = "True"
+        if statevar1 == "-":
+            result['Statevar1'] = "NA"
+        if statevar2 == "-":
+            result['Statevar2'] = "NA"
+        if statevar3 == "-":
+            result['Statevar3'] = "NA"
+        if statevar4 == "-":
+            result['Statevar4'] = "NA"
+        if statevar5 == "-":
+            result['Statevar5'] = "NA"
+        if statevar6 == "-":
+            result['Statevar6'] = "NA"
+        if statevar7 == "-":
+            result['Statevar7'] = "NA"
+
+        if isinstance(boundcond1, str):
+            if boundcond1 == "-":
+                result['Boundarycond1'] = "NA"
             else:
-                a["highlight"] = "False"
-       
-        highlighted_rsop = [a for a in rsop if a["highlight"] == "True"]
-        if highlighted_rsop:
-            highlighted_rsop = highlighted_rsop[0]
+                boundcond1 = boundcond1.strip().replace(
+                    " and ", ", ").replace('“', " ").replace('”', " ")
+                boundcond1 = boundcond1.strip().replace(
+                    " Or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond1 = boundcond1.strip().replace(
+                    " or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond1 = boundcond1.strip().replace(
+                    " AND ", ", ").replace('“', " ").replace('”', " ")
+                boundcond1 = boundcond1.strip().replace(
+                    " OR ", ", ").replace('“', " ").replace('”', " ")
+                boundcond1 = boundcond1.strip().replace(
+                    "\nand\n", ", ").replace('“', " ").replace('”', " ")
+
+                if boundcond1 == "N/A" or boundcond1 == "N, A" or boundcond1 == "N,A":
+                    boundcond1 = "NA"
+                else:
+                    boundcond1 = boundcond1.strip().replace("/", ", ")
+
+                result["Boundarycond1"] = boundcond1
         else:
-            highlighted_rsop = {}
-       
-        print(highlighted_rsop)
-        return [highlighted_rsop], []  # Ensure the return value is always a list
+            result["Boundarycond1"] = str(boundcond1)
 
-
-def execute_oracle_query(scenario_id):
-    try:
-        os.environ['PATH'] = r'C:\Users\maahmad\Downloads\instantclient-basiclite-windows.x64-21.15.0.0.0dbru\instantclient_21_15' + ";" + os.environ['PATH']
-
-        dsn_tns = cx_Oracle.makedsn('aigabec902-scan.r1-core.r1.aig.net', '1521', service_name='SGIGESP')
-        connection = cx_Oracle.connect(user='MAAHMAD', password='EDAHCF9a=4b#CELI', dsn=dsn_tns)
-       
-        cursor = connection.cursor()
-
-        query = f"""
-        SELECT DIM_POL_ID, PRIOR_DIM_POL_ID, POL_STAT, POL_ID, SRC_KY
-        FROM GXRDSDW.DIM_POLICY
-        WHERE SRC = 'GLMS' AND SRC_KY = '{scenario_id}'
-        """
-       
-        cursor.execute(query)
-        result = cursor.fetchall()
-
-        for row in result:
-            prior_dim_pol_id = row[1] if row[1] is not None else 'NULL'
-            print(f"DIM_POL_ID: {row[0]}, PRIOR_DIM_POL_ID: {prior_dim_pol_id}, POL_STAT: {row[2]}, POL_ID: {row[3]}")
-
-            if prior_dim_pol_id == 'NULL' and row[2] == 'UNBOUND':
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P1"
-                # update_mongodb(row[4])
-            elif prior_dim_pol_id == 'not null' and row[2] == 'BOUND':  
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P2"
+        if isinstance(boundcond2, str):
+            if boundcond2 == "-":
+                result["Boundarycond2"] = "NA"
             else:
-                rsop_value = "Assign to l2"
-       
-        cursor.close()
-        connection.close()
-        return rsop_value
+                boundcond2 = boundcond2.strip().replace(
+                    " Or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond2 = boundcond2.strip().replace(
+                    " and ", ", ").replace('“', " ").replace('”', " ")
+                boundcond2 = boundcond2.strip().replace(
+                    " or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond2 = boundcond2.strip().replace(
+                    " AND ", ", ").replace('“', " ").replace('”', " ")
+                boundcond2 = boundcond2.strip().replace(
+                    " OR ", ", ").replace('“', " ").replace('”', " ")
+                boundcond2 = boundcond2.strip().replace(
+                    "\nand\n", ", ").replace('“', " ").replace('”', " ")
 
-    except cx_Oracle.DatabaseError as e:
-        error, = e.args
-        print(f"Oracle-Error-Code: {error.code}")
-        print(f"Oracle-Error-Message: {error.message}")
-    finally:
-        return rsop_value
+                if boundcond2 == "N/A" or boundcond2 == "N, A" or boundcond2 == "N,A":
+                    boundcond2 = "NA"
+                else:
+                    boundcond2 = boundcond2.strip().replace("/", ", ")
+
+                result["Boundarycond2"] = boundcond2
+        else:
+            result["Boundarycond2"] = str(boundcond2)
+
+        if isinstance(boundcond3, str):
+            if boundcond3 == "-":
+                result['Boundarycond3'] = "NA"
+            else:
+                boundcond3 = boundcond3.strip().replace(
+                    " Or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond3 = boundcond3.strip().replace(
+                    " and ", ", ").replace('“', " ").replace('”', " ")
+                boundcond3 = boundcond3.strip().replace(
+                    " or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond3 = boundcond3.strip().replace(
+                    " AND ", ", ").replace('“', " ").replace('”', " ")
+                boundcond3 = boundcond3.strip().replace(
+                    " OR ", ", ").replace('“', " ").replace('”', " ")
+                boundcond3 = boundcond3.strip().replace(
+                    "\nand\n", ", ").replace('“', " ").replace('”', " ")
+
+                if boundcond3 == "N/A" or boundcond3 == "N, A" or boundcond3 == "N,A":
+                    boundcond3 = "NA"
+                else:
+                    boundcond3 = boundcond3.strip().replace("/", ", ")
+
+                result["Boundarycond3"] = boundcond3
+        else:
+            result["Boundarycond3"] = str(boundcond3)
+
+        if isinstance(boundcond4, str):
+            if boundcond4 == "-":
+                result['Boundarycond4'] = "NA"
+            else:
+                boundcond4 = boundcond4.strip().replace(
+                    " Or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond4 = boundcond4.strip().replace(
+                    " and ", ", ").replace('“', "").replace('”', "")
+                boundcond4 = boundcond4.strip().replace(
+                    " or ", ", ").replace('“', "").replace('”', "")
+                boundcond4 = boundcond4.strip().replace(
+                    " AND ", ", ").replace('“', " ").replace('”', " ")
+                boundcond4 = boundcond4.strip().replace(
+                    " OR ", ", ").replace('“', " ").replace('”', " ")
+                boundcond4 = boundcond4.strip().replace(
+                    "\nand\n", ", ").replace('“', "").replace('”', "")
+                boundcond4 = boundcond4.strip().replace("/", ", ")
+
+                if boundcond4 == "N/A" or boundcond4 == "N, A" or boundcond4 == "N,A":
+                    boundcond4 = "NA"
+                else:
+                    boundcond4 = boundcond4.strip().replace("/", ", ")
+
+                result["Boundarycond4"] = boundcond4
+
+        else:
+            result["Boundarycond4"] = str(boundcond4)
+
+        if isinstance(boundcond5, str):
+            if boundcond5 == "-":
+                result['Boundarycond5'] = "NA"
+            else:
+                boundcond5 = boundcond5.strip().replace(
+                    " Or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond5 = boundcond5.strip().replace(
+                    " and ", ", ").replace('“', " ").replace('”', " ")
+                boundcond5 = boundcond5.strip().replace(
+                    " or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond5 = boundcond5.strip().replace(
+                    " AND ", ", ").replace('“', " ").replace('”', " ")
+                boundcond5 = boundcond5.strip().replace(
+                    " OR ", ", ").replace('“', " ").replace('”', " ")
+                boundcond5 = boundcond5.strip().replace(
+                    "\nand\n", ", ").replace('“', " ").replace('”', " ")
+                boundcond5 = boundcond5.strip().replace("/", ", ")
+
+                if boundcond5 == "N/A" or boundcond5 == "N, A" or boundcond5 == "N,A":
+                    boundcond5 = "NA"
+                else:
+                    boundcond5 = boundcond5.strip().replace("/", ", ")
+
+                result["Boundarycond5"] = boundcond5
+        else:
+            result["Boundarycond5"] = str(boundcond5)
+
+        if isinstance(boundcond6, str):
+            if boundcond6 == "-":
+                result['Boundarycond6'] = "NA"
+            else:
+                boundcond6 = boundcond6.strip().replace(
+                    " Or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond6 = boundcond6.strip().replace(
+                    " and ", ", ").replace('“', " ").replace('”', " ")
+                boundcond6 = boundcond6.strip().replace(
+                    " or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond6 = boundcond6.strip().replace(
+                    " AND ", ", ").replace('“', " ").replace('”', " ")
+                boundcond6 = boundcond6.strip().replace(
+                    " OR ", ", ").replace('“', " ").replace('”', " ")
+                boundcond6 = boundcond6.strip().replace(
+                    "\nand\n", ", ").replace('“', " ").replace('”', " ")
+                boundcond6 = boundcond6.strip().replace("/", ", ")
+
+                if boundcond6 == "N/A" or boundcond6 == "N, A" or boundcond6 == "N,A":
+                    boundcond6 = "NA"
+                else:
+                    boundcond6 = boundcond6.strip().replace("/", ", ")
+
+                result["Boundarycond6"] = boundcond6
+        else:
+            result["Boundarycond6"] = str(boundcond6)
+
+        if isinstance(boundcond7, str):
+            if boundcond7 == "-":
+                result['Boundarycond7'] = "NA"
+            else:
+                boundcond7 = boundcond7.strip().replace(
+                    " Or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond7 = boundcond7.strip().replace(
+                    " and ", ", ").replace('“', " ").replace('”', " ")
+                boundcond7 = boundcond7.strip().replace(
+                    " or ", ", ").replace('“', " ").replace('”', " ")
+                boundcond7 = boundcond7.strip().replace(
+                    " AND ", ", ").replace('“', " ").replace('”', " ")
+                boundcond7 = boundcond7.strip().replace(
+                    " OR ", ", ").replace('“', " ").replace('”', " ")
+                boundcond7 = boundcond7.strip().replace(
+                    "\nand\n", ", ").replace('“', " ").replace('”', " ")
+                boundcond7 = boundcond7.strip().replace("/", ", ")
+
+                if boundcond7 == "N/A" or boundcond7 == "N, A" or boundcond7 == "N,A":
+                    boundcond7 = "NA"
+                else:
+                    boundcond7 = boundcond7.strip().replace("/", ", ")
+
+                result["Boundarycond7"] = boundcond7
+        else:
+            result["Boundarycond7"] = str(boundcond7)
+
+    print(results)
+    return jsonify(results)
 
 
-def update_mongodb(scenario_id):
+@app.route("/api/insertdatadiagnostic", methods=["POST"])
+def enterdatadiagonstic():
+    data = request.json
+    print(data)
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client.NeuroDB
+    datadiagnostic = db.Diagnostics_Data
+
     try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['NeuroDB_testing']
-        collection = db['SOP_Filtering']
+        del data["ApplicationName"]
+        del data["Category1"]
+        del data["Category2"]
+        del data["Category3"]
+        del data["CommonDescriptionofSOP"]
+        del data["Keyword"]
+        # del data["MandatoryInformation"]
+        del data["highlight"]
+        data["Resolution Automation"] = "TBD"
+        data["source"] = "TBD"
+        result = datadiagnostic.insert_one(data)
+        return jsonify({"result": str(result.inserted_id)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-        filter_query = {
-            "GEARID": 5219,
-            "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP",
-            "Boundarycond3": "BOUND",
-            "Boundarycond4": "Is null",
-            # "SRC_KY": scenario_id
-        }
 
-        update_query = {
-            "$set": {"highlight": "True"}
-        }
+@app.route('/api/saveData', methods=["POST"])
+def save_data():
+    data = request.json
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client.NeuroDB
+    SOP_Filtering = db.SOP_Filtering
+    count = 1
+    query = {}
 
-        result = collection.update_many(filter_query, update_query)
-        print(filter_query)
-        print(update_query)
-        print(f"Matched {result.matched_count} documents and modified {result.modified_count} documents.")
+    for key, value in data.items():
+        if key == 'FilteredDiagnosticSOPID':
+            query[key] = value.replace("SOP name is:", " ").strip()
+        elif key == 'GEARID':
+            query[key] = int(value)
+        else:
+            query[f'Statevar{count}'] = key
+            query[f'Boundarycond{count}'] = value
+
+        count += 1
+    print(query)
+    try:
+        result = list(SOP_Filtering.find(query, {"_id": 0}))
+        gearid = query['GEARID']
+        diasop = query['FilteredDiagnosticSOPID']
+        data = getsopdetails(result, gearid, diasop)
+        return jsonify({"Status": "True", "tabledata": data})
+    except Exception as e:
+        print("Exception ", e)
+        return jsonify({"Status": str(e)}), 500
+
+
+@app.route('/api/insetdatasmartque', methods=['GET'])
+def get_smartque_data():
+    try:
+        data = list(SmartOpsQueueCollection.find({}, {'_id': 0}))
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/resolvedincidents', methods=['GET'])
+def get_resolvedincidents():
+    try:
+        # incident_data = get_resolved_incidents()
+        # kpidata, totaldata = smartopskpidata(incident_data)
+        data = run_KPI()
+        return jsonify(data)
+        # return jsonify({"kpidata": kpidata, "totaldata": totaldata})
 
     except Exception as e:
-        print(f"MongoDB error: {e}")
+        print("Exception", e)
+        return jsonify({'kpidata': [], 'totaldata': []})
 
 
-def save_to_excel(data, filename):
-    # Convert the data to a DataFrame
-    df = pd.DataFrame(data)
-   
-    # Save the DataFrame to an Excel file
-    df.to_excel(filename, index=False)
-
-
-def send_email_with_attachment(subject, body, to, attachment_path):
-    # Create an instance of the Outlook application
-    outlook = win32.Dispatch('outlook.application')
-   
-    # Create a new email
-    mail = outlook.CreateItem(0)
-   
-    # Set email attributes
-    mail.Subject = subject
-    mail.Body = body
-    mail.To = to
-   
-    # Attach the file
-    mail.Attachments.Add(attachment_path)
-   
-    # Send the email
-    mail.Send()
-   
-    print(f"Email sent to {to} with attachment {attachment_path}")
-
-
-# # Example usage
-# data = {"incidentNo": "INC10921445"}
-test_incident()
-Tejas updated-:
-import re
-import cx_Oracle
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-import time
-import pyodbc
-import os
-from pymongo import MongoClient
-from config import SOP_Filtering
-from selenium.webdriver.common.alert import Alert
-import pandas as pd
-import win32com.client as win32
-import tkinter as tk
-from tkinter import simpledialog
-
-
-# Function to get the incident number from the user via a pop-up dialog
-def get_incident_number():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
-    incident_number = simpledialog.askstring("Input", "Please enter the Incident Number:")
-    return incident_number
-
-
-# Function to get the scenario ID from the user via a pop-up dialog
-def get_scenario_id():
-    root = tk.Tk()
-    root.withdraw()  # Hide the main window
-    scenario_id = simpledialog.askstring("Input", "Please enter the SCENARIO_ID:")
-    return scenario_id
-
-
-def test_incident():
+@app.route('/api/filterdata', methods=['POST'])
+def get_filtereddata():
     try:
-        # Get the incident number from the user if not passed in data
-        incident_number = get_incident_number()
-
-        if not incident_number:
-            print("Incident number not provided.")
-            return []
-
-        options = Options()
-        options.add_argument("--window-size=1920,1080")
-        driver = webdriver.Chrome(options=options)
-        driver.maximize_window()
-        url = f"https://aig.service-now.com/nav_to.do?uri=%2Fincident.do%3Fsysparm_query%3Dnumber%3D{incident_number}"
-        driver.get(url)
-        time.sleep(10)
-        print(f"Navigated to incident number: {incident_number}")
-
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "gsft_main"))
-        )
-        driver.switch_to.frame("gsft_main")
-        print("Found main frame")
-
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "incident.description"))
-        )
-        description_element = driver.find_element(By.ID, "incident.description")
-        textarea_value = description_element.get_attribute("value")
-        print("Description:", textarea_value)
-
-        scenario_id_pattern = r"SCENARIO_ID\s*=\s*(\d+)"
-        match = re.search(scenario_id_pattern, textarea_value)
-
-        if match:
-            scenario_id = match.group(1)
-            print(f"Found SCENARIO_ID: {scenario_id}")
-        else:
-            print("No SCENARIO_ID found in the description.")
-            scenario_id = get_scenario_id()
-            print(f"User provided SCENARIO_ID: {scenario_id}")
-
-        if not scenario_id:
-            print("SCENARIO_ID not provided.")
-            return []
-
-        table1_data, table2_data = execute_sql_query(scenario_id)
-
-        # Save table1_data to an Excel file
-        if len(table1_data[0]) >= 1:
-            save_to_excel(table1_data, "table1_data.xlsx")
-
-            # Send the Excel file via email
-            subject = "Table1 Data"
-            body = "Please find the attached file containing Table1 data."
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
-
+        data = request.json
+        print(data)
+        result = {"Status": "True"}
+        return jsonify(result)
     except Exception as e:
-        print(f"An error occurred: {e}")
-        table1_data, table2_data = [], []
-    finally:
-        driver.quit()
-        if len(table1_data[0]) == 0:
-            print("Table data is empty")
-            table1_data.pop()
-            table1_data.append({
-                "GEARID": "5219",
-                "FilteredDiagnosticSOPID": "NA",
-                "Boundarycond1": "NA",
-                "Statevar1": "NA",
-                "Boundarycond2": "NA",
-                "Statevar2": "NA",
-                "Boundarycond3": "NA",
-                "Statevar3": "NA",
-                "Boundarycond4": "NA",
-                "Statevar4": "NA",
-                "Boundarycond5": "NA",
-                "Statevar5": "NA",
-                "Boundarycond6": "NA",
-                "Statevar6": "NA",
-                "Boundarycond7": "NA",
-                "Statevar7": "NA",
-                "ResolutionSOPID": "Assign to L2"
-            })
-            save_to_excel(table1_data, "table1_data.xlsx")
-
-            # Send the Excel file via email
-            subject = "Table1 Data"
-            body = "Please find the attached file containing Table1 data."
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
-        return table1_data, table2_data
+        print(e)
+        return jsonify({'error': str(e)}), 500
 
 
-def execute_sql_query(scenario_id):
-    try:
-        rsop_value = ""
-
-        conn_str = (
-            r'DRIVER={ODBC Driver 17 for SQL Server};'
-            r'SERVER=PWGIDSGLSQ001,50110;'
-            r'DATABASE=GLMS_GPPolicy_Prod;'
-            r'Trusted_Connection=yes;'
-            r'Connection Timeout=60;'
-            r'MultiSubnetFailover=yes;'
-        )
-
-        conn = pyodbc.connect(conn_str)
-        cursor = conn.cursor()
-
-        print(f"Executing SQL query with SCENARIO_ID: {scenario_id}")
-        sql_query = f"SELECT SCENARIO_ID, DLTD_IN, POL_STAT_TYP FROM GLMS_GPPolicy_Prod..TBATCH_LOG WHERE SCENARIO_ID = {scenario_id};"
-        cursor.execute(sql_query)
-
-        result = cursor.fetchone()
-
-        if result and result.DLTD_IN == 'Y' and result.POL_STAT_TYP == 'Canceled':
-            print(result)
-            rsop_value = execute_oracle_query(scenario_id)
-        else:
-            print("DLTD_IN IS NOT = Y AND POL_STAT_TYP IS NOT = CANCELED")
-
-        cursor.close()
-        conn.close()
-
-    except pyodbc.Error as e:
-        print(f"Database error: {e}")
-        rsop_value = "error occurred"
-
-    finally:
-        rsop = list(SOP_Filtering.find({"GEARID": 5219, "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP"}, {"_id": 0}))
-        for a in rsop:
-            if a["ResolutionSOPID"] == rsop_value:
-                a["highlight"] = "True"
-            else:
-                a["highlight"] = "False"
-
-        highlighted_rsop = [a for a in rsop if a["highlight"] == "True"]
-        if highlighted_rsop:
-            highlighted_rsop = highlighted_rsop[0]
-        else:
-            highlighted_rsop = {}
-
-        print(highlighted_rsop)
-        return [highlighted_rsop], []  # Ensure the return value is always a list
-
-
-def execute_oracle_query(scenario_id):
-    try:
-        os.environ['PATH'] = r'C:\Users\maahmad\Downloads\instantclient-basiclite-windows.x64-21.15.0.0.0dbru\instantclient_21_15' + ";" + os.environ['PATH']
-
-        dsn_tns = cx_Oracle.makedsn('aigabec902-scan.r1-core.r1.aig.net', '1521', service_name='SGIGESP')
-        connection = cx_Oracle.connect(user='MAAHMAD', password='EDAHCF9a=4b#CELI', dsn=dsn_tns)
-
-        cursor = connection.cursor()
-
-        print(f"Executing Oracle query with SCENARIO_ID: {scenario_id}")
-        query = f"""
-        SELECT DIM_POL_ID, PRIOR_DIM_POL_ID, POL_STAT, POL_ID, SRC_KY
-        FROM GXRDSDW.DIM_POLICY
-        WHERE SRC = 'GLMS' AND SRC_KY = '{scenario_id}'
-        """
-
-        cursor.execute(query)
-        result = cursor.fetchall()
-
-        for row in result:
-            prior_dim_pol_id = row[1] if row[1] is not None else 'NULL'
-            print(f"DIM_POL_ID: {row[0]}, PRIOR_DIM_POL_ID: {prior_dim_pol_id}, POL_STAT: {row[2]}, POL_ID: {row[3]}")
-
-            if prior_dim_pol_id == 'NULL' and row[2] == 'UNBOUND':
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P1"
-                # update_mongodb(row[4])
-            elif prior_dim_pol_id == 'not null' and row[2] == 'BOUND':
-                rsop_value = "NAM_5219_PDI_UNBIND_REQUEST_RSOP_P2"
-            else:
-                rsop_value = "Assign to l2"
-
-        cursor.close()
-        connection.close()
-        return rsop_value
-
-    except cx_Oracle.DatabaseError as e:
-        error, = e.args
-        print(f"Oracle-Error-Code: {error.code}")
-        print(f"Oracle-Error-Message: {error.message}")
-    finally:
-        return rsop_value
-
-
-def update_mongodb(scenario_id):
-    try:
-        client = MongoClient('mongodb://localhost:27017/')
-        db = client['NeuroDB_testing']
-        collection = db['SOP_Filtering']
-
-        filter_query = {
-            "GEARID": 5219,
-            "FilteredDiagnosticSOPID": "NAM_5219_PDI_UNBIND_REQUEST_DSOP",
-            "Boundarycond3": "BOUND",
-            "Boundarycond4": "Is null",
-            # "SRC_KY": scenario_id
-        }
-
-        update_query = {
-            "$set": {"highlight": "True"}
-        }
-
-        result = collection.update_many(filter_query, update_query)
-        print(filter_query)
-        print(update_query)
-        print(f"Matched {result.matched_count} documents and modified {result.modified_count} documents.")
-
-    except Exception as e:
-        print(f"MongoDB error: {e}")
-
-
-def save_to_excel(data, filename):
-    # Convert the data to a DataFrame
-    df = pd.DataFrame(data)
-
-    # Save the DataFrame to an Excel file
-    df.to_excel(filename, index=False)
-
-
-def send_email_with_attachment(subject, body, to, attachment_path):
-    # Create an instance of the Outlook application
-    outlook = win32.Dispatch('outlook.application')
-
-    # Create a new email
-    mail = outlook.CreateItem(0)
-
-    # Set email attributes
-    mail.Subject = subject
-    mail.Body = body
-    mail.To = to
-
-    # Attach the file
-    mail.Attachments.Add(attachment_path)
-
-    # Send the email
-    mail.Send()
-
-    print(f"Email sent to {to} with attachment {attachment_path}")
-
-
-# # Example usage
-# data = {"incidentNo": "INC10921445"}
-test_incident()
-pattern- scenario
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
