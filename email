@@ -1,1 +1,192 @@
+import json
+from collections import defaultdict
+import time
+import pyperclip
+import DiagnosticSOP1
+from pymongo import MongoClient
+from bson.json_util import dumps
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys 
+from config import Resolved_Dump, SmartOpsQueueCollection, SNOW_Groups, SOP_collection
+from pytz import timezone
+from datetime import datetime, timedelta
+
+#Define global variables
+assignment_group_mapping = {'364936fedb@63f80dea135076896195e':'Assignment 1',
+ '28e26598c0e43d0002b1233d47dbde61': 'Assignment 2',
+ '28ac3edddb00f784852434f668961983': 'Assignment 3',
+ '68818e97dbf90898a7ce01a3ca9619d9': 'Assignment 4',
+ 'c64f7c241bca4590188ffe6f834bcb89': 'Assignment 5',
+ '79f15d2cdb2176881de4d9595e9619c3': 'Assignment 6', 
+ '67ee1a71dc76e984@2b1f7d59d962c0a': 'Assignment 7',
+ '3b7f8287db9fb284cf7ff9571d96192d': 'Assignment 8',
+ '82f19d2cdb2176081de4d95956961919': 'Assignment 9',
+ 'f2ece@741b85495@b481cb3d6e4bcb29': 'Assignment 10',
+ '1179deafdbba2854ef24671c13961977': 'Assignment 11',
+ '13825267db362054ef24671c13961946': 'Assignment 12',
+ 'a4825227db362054ef24671c1396197': 'Assignment 13',
+ '68825227db362054ef24671c13961935': 'Assignment 14',
+ '2d369c9a1b3141943f5710231d4bcb6b': 'Assignment 15',
+ '59983e09db7320142231790768961922': 'Assignment 16',
+ 'cbbb6ce85d8f790802b172c7fe8336a3': 'Assignment 17',
+ '9605e129dbef10904a51671c1396197b': 'Assignment 18',
+ '1f1b8677dbfe8cd804c5790768961982': 'Assignment 19',
+ '6ae7f88c0aaf38aa013ee9bf46ac60c1': 'Assignment 20',
+ '9429b0dbdb83eb40c00e34f6689619ac': 'Assignment 21',
+ '691b8677dbfe8cd804c5790768961996': 'Assignment 22',
+ '55f85d930aaf38aa0065e2649b7cb47d': 'Assignment 23',
+ '99034bdae900fa000bf54519bc6c0020': 'Assignment 24',
+ '9f634bdae900fa000bf54519bc6c0028': 'Assignment 25',
+ '35168f1edb7b851cf67bee094896197a': 'Assignment 26',
+ '721aa8cfdbdb76045c65f9571d96195e': 'Assignment 27',
+ '46f19d2cdb2176081de4d9595e961922': 'Assignment 28',
+ 'a50b8e37dbfe8cd804c5790768961935': 'Assignment 29'}
+gear_id_mapping = {'364936fedb063f80dea135076896195e': '3627', '28ac3edddb00f7848524344668961983': '1453','28e26598c0e43d0002b1233d47dbde61': '2620', '68010e97dbf00890a7ce01a3ca9619d9': '2184', 'c64f7c241bca4590108ffe6f034bcb89': '6534','79F15d2cdb2176881de4d9595e9619c3': '2402', '67ee1a71dc76e98402b1f7d59d962c0a': '2401', '3b7f0207db9fb284cf7ff9571d96192d':
+'4981', '82f19d2cdb2176081de4d9595e961919': '989', 'f2ece074168549506481cb3d6e4bcb29' : '6966', '1179deafdbba2054ef24671c13961977' : '1452','13825267db362054ef24671c1396194b': '2620', 'a4825227db362054ef24671c1396197': '1219', '68825227db362854ef24671c13961935': '1217','2d369c9a1b3141943f5710231d4bcb6b':'6966', '59983e09db7320142231798768961922': '6412', 'cbbb6ce85d8f790882b172c7fe8336a3': '3653','9605e129dbef10984a51671c1396197b': '6225', '1f1b8677dbfe8cd804c5790768961982': '3308', '6ae7f88c0aaf38aa013ee9bf46ac68c1': '2220','9429b0dbdb83eb40c00e34f6689619ac': '2620', '691b8677dbfe8cd804c5790768961996': '3138', '55f85d930aaf38aa0065e2649b7cb47d': '1591','99034bdae900fa000bf54519bc6c0020': '1361', '9f634bdae900fa000bf54519bc6c0028': '1615', '35168f1edb7b851cf67bee094896197a': '5219','721aa8cfdbdb76045c65f9571d96195e': '4613', '46f19d2cdb2176081de4d9595e961922': '2797', 'a50b8e37dbfe8cd884c5790768961935': '4314'}
+ 
+def get_incident():
+    #Read JSON data from local file
+    filepath = r"C:\Users\2126110\updated_incident (1).json"
+    with open(filepath, 'r', encoding='utf-8') as file:
+        open_json_object = json.load(file)
+
+    print(len(open_json_object["records"]))
+
+    state_mapping = {
+        "1": "New",
+        "2": "In Progress",
+        "3": "On Hold",
+        "6": "Resolved",
+        "7": "Closed",
+        "8": "Cancelled"
+    }
+
+    sop_query = SmartOpsQueueCollection
+    sop_query.delete_many({})
+
+    central = timezone('US/Central')
+    now = datetime.now(central)
+
+    for record in open_json_object["records"]:
+        try:
+            opened_at = datetime.strptime (record ["opened_at"], "%Y-%m-%d %H:%M:%S")
+            opened_at1 = central.localize(opened_at) - timedelta (hours=5)
+            duration= now - opened_at1
+            time_diff = round(int(duration.total_seconds()) / 60)
+
+            gearid = int(gear_id_mapping[record ["assignment_group"]])
+            diasop, mandatoryinfo, automation = DiagnosticSOP1.check_keywords2(gearid, record ["short_description"])
+            appname = getappname(gearid)
+            
+            sop_query.insert_one({
+            "number": record ["number"],
+            "ticket_type": "Incident",
+            "opened_at": datetime.strftime(opened_at1, "%Y-%m-%d %H:%M:%S"),
+            "duration_since_opened": str(time_diff),
+            "state": state_mapping[record["state"]],
+            "assignment_group":  assignment_group_mapping [record["assignment_group"]],
+            "short_description": record ["short_description"],
+            "sop_available": "TBD",
+            "sop_name": diasop,
+            "action_required": "TBD", 
+            "ticketaudit": "", 
+            "applicationname": appname, 
+            "gearid": gearid,
+            "navigation": "no",
+            "automation": automation,
+            "mandatoryinput": mandatoryinfo
+            })
+        except Exception as e:
+            print(e, record ["number"])
+            
+    update_sop_availability(sop_query)
+    get_tasks()
+            
+def get_tasks():
+    #Read JSON data from local file
+    filepath = r"C:\Users\2126110\updated_taskincident (1).json"
+    with open(filepath, 'r', encoding='utf-8') as file:
+        open_json_object = json.load(file)
+
+    print(len(open_json_object["records"]))
+    
+    state_mapping = {
+        "1": "Open",
+        "2": "Work In Progress",
+        "3": "Closed Complete",
+        "4": "Closed Incomplete"
+    }
+ 
+    sop_query = SmartOpsQueueCollection
+    central = timezone('US/Central')
+    now = datetime.now(central)
+
+    for record in open_json_object["records"]:
+        try:
+            opened_at = datetime.strptime (record ["opened_at"], "%Y-%m-%d %H:%M:%S")
+            opened_at1 = central.localize(opened_at) - timedelta(hours=5)
+            duration = now - opened_at1
+            time_diff = round(int(duration.total_seconds()) / 60)
+            
+            gearid = int(gear_id_mapping[record ["assignment_group"]])
+            diasop, mandatoryinfo, automation = DiagnosticSOP1.check_keywords2(gearid, record ["short_description"])
+            appname = getappname(gearid)
+
+            sop_query.insert_one({
+                "number": record ["number"],
+                "ticket_type": "Service Request",
+                "duration_since_opened": str(time_diff),
+                "ticketaudit":"",
+                "navigation": "no",
+                "opened_at": record["opened_at"],
+                "state": state_mapping[record["state"]],
+                "assignment_group": assignment_group_mapping[record ["assignment_group"]],
+                "short_description": record ["short_description"],
+                "sop_available": "TBD",
+                "sop_name": diasop,
+                "action_required": "TBD",
+                "applicationname": appname,
+                "gearid": gearid,
+                "automation": automation,
+                "mandatoryinput": mandatoryinfo
+            })    
+        except Exception as e:                
+            print(e, record["number"])
+
+    update_sop_availability(sop_query)
+
+def update_sop_availability(sop_query):                
+    sop_query.update_many({"sop_name": "No SOP found. Please assign to L2"}, {"$set": {"sop_available": "No"}})
+    sop_query.update_many({"sop_available": "TBD"}, {"$set": { "sop_available": "Yes"}})
+    sop_query.update_many({"sop_available": "Yes"}, {"$set": {"action_required": "Assign to SmartOps"}})
+    sop_query.update_many({"sop_available": "No"}, {"$set": {"action_required": "Assign to L2 Team"}})
+
+def get_snow_groups():
+    snow_query = SNOW_Groups
+    snow_cursor = snow_query.find({"Smartops Onboarding": "Yes"})
+    snow_groups = ""
+    snow_addendum = "%2C"
+    global assignment_group_mapping, gear_id_mapping
+    
+    for count in snow_cursor:
+        snow_groups += count["SNOW Group"] + snow_addendum
+        assignment_group_mapping [count["L2 Group Snow ID"]] = count["SNOW Group"]
+        gear_id_mapping[count["L2 Group Snow ID"]] = str(count["Gear ID"])
+
+    assignments = snow_groups[:-3]
+    return assignments, assignment_group_mapping, gear_id_mapping
+
+def getappname (gearid):
+    result = SNOW_Groups.find_one({"Gear ID": gearid})
+    return result["App Name"]
+
+def getautomation (gearid, diasop):    
+    result = SOP_collection.find_one({"GEAR ID": gearid, "Filtered Diagnostic SOP ID": diasop})
+    return result["Diag_Automation"] if result else "No"
+
+if __name__ =="__main__":
+    assignments, assignment_group_mapping, gear_id_mapping = get_snow_groups()
+    get_incident()
 
