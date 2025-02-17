@@ -111,7 +111,7 @@ def test_incident():
         WebDriverWait(driver, 80).until(
             EC.presence_of_element_located((By.ID, "gsft_main"))
         )
-        driver.switch_to.frame("gsft_main")  
+        driver.switch_to.frame("gsft_main")
         print("found")
 
         WebDriverWait(driver, 80).until(
@@ -121,13 +121,17 @@ def test_incident():
         textarea_value = description_element.get_attribute("value")
         print("Description:", textarea_value)
 
-        submission_number_pattern = r"SUBMISSION_NUMBER\s*=\s*(\d+)"
-        match = re.search(submission_number_pattern, textarea_value)
-       
+        # Adjusted pattern to match "Submission No#"
+        submission_number_pattern = r"submission\s*no#?\s*(\d+)"
+        match = re.search(submission_number_pattern, textarea_value, re.IGNORECASE)
+
         if match:
             submission_number = match.group(1)
-            print(f"Found SUBMISSION_NUMBER: {submission_number}")
+            print(f"Found Submission No#: {submission_number}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
+
+# Call the function to test
+test_incident()
 Hi Team, Please change the expiration date to May 15, 2024. Additional Details: Submission No# 62489968
