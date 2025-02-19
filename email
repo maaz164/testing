@@ -63,11 +63,13 @@ def test_incident():
         if match:
             submission_number = match.group(1)
             print(f"Found Submission No#: {submission_number}")
+            # Call the function to execute the SQL query with the submission number
+            execute_sql_query(submission_number)
 
     except Exception as e:
         print(f"An error occurred: {e}")
 
-def execute_sql_query(scenario_id):
+def execute_sql_query(submission_number):
     try:
         rsop_value = ""
 
@@ -83,9 +85,20 @@ def execute_sql_query(scenario_id):
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
 
-        sql_query = f"SELECT SCENARIO_ID, DLTD_IN, POL_STAT_TYP FROM GLMS_GPPolicy_Prod..TBATCH_LOG WHERE SCENARIO_ID = {scenario_id};"
+        sql_query = f"""select  top 1 SUBMSN_NO ,Deal_id ,DEAL_STAT_REF_ID,TRNS_CMPNT_ID ,TRNS_TYPE_NM ,
+cast(t.EFF_DT as date) as "Endorsement Effective Date" ,t.ORIG_PLCY_EFF_DT as "Effective Date",
+cast(t.EXP_DT as date) as  "Expiry Date" from GLMS_GPPolicy_Prod.dbo.TDEAL t with (nolock)
+where t.SUBMSN_NO={submission_number} order by t.DEAL_ID desc;"""
         cursor.execute(sql_query)
 
         result = cursor.fetchone()
+        if result:
+            print("SQL Query Result:", result)
+        else:
+            print("No results found for the given submission number.")
+
+    except Exception as e:
+        print(f"An error occurred while executing the SQL query: {e}")
+
 # Call the function to test
 test_incident()
