@@ -263,3 +263,4 @@ def send_email_with_attachment(subject, body, to, attachment_path):
 # # Example usage
 # data = {"incident_No": "INC10921445"}
 # test_incident(data)
+Please plan for RDS DML to unbind the scenario- 373783 for the deal id- 189225
