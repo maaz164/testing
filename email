@@ -67,5 +67,25 @@ def test_incident():
     except Exception as e:
         print(f"An error occurred: {e}")
 
+def execute_sql_query(scenario_id):
+    try:
+        rsop_value = ""
+
+        conn_str = (
+            r'DRIVER={ODBC Driver 17 for SQL Server};'
+            r'SERVER=PWGIDSGLSQ001,50110;'  
+            r'DATABASE=GLMS_GPPolicy_Prod;'
+            r'Trusted_Connection=yes;'
+            r'Connection Timeout=60;'
+            r'MultiSubnetFailover=yes;'
+        )
+
+        conn = pyodbc.connect(conn_str)
+        cursor = conn.cursor()
+
+        sql_query = f"SELECT SCENARIO_ID, DLTD_IN, POL_STAT_TYP FROM GLMS_GPPolicy_Prod..TBATCH_LOG WHERE SCENARIO_ID = {scenario_id};"
+        cursor.execute(sql_query)
+
+        result = cursor.fetchone()
 # Call the function to test
 test_incident()
