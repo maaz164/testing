@@ -491,94 +491,95 @@ from pymongo import MongoClient
 from config import SOP_Filtering
 import pandas as pd
 import win32com.client as win32
-
+def create_js_popup(driver, message):
+   """
+   Injects JavaScript to create a custom popup in the browser.
+   Returns the user input.
+   """
+   js_code = f"""
+   let userInput = prompt("{message}");
+   return userInput;
+   """
+   return driver.execute_script(js_code)
 def test_incident(data):
-    try:
-        incident_number = data["incidentNo"]
-        options = Options()
-        options.add_argument("--window-size=1920,1080")
-        driver = webdriver.Chrome(options=options)
-        driver.maximize_window()
-        url = f"https://aig.service-now.com/nav_to.do?uri=%2Fincident.do%3Fsysparm_query%3Dnumber%3D{incident_number}"
-        driver.get(url)
-        time.sleep(10)
-        print(f"Navigated to incident number: {incident_number}")
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "gsft_main"))
-        )
-        driver.switch_to.frame("gsft_main")
-        print("found")
-        WebDriverWait(driver, 80).until(
-            EC.presence_of_element_located((By.ID, "incident.description"))
-        )
-        description_element = driver.find_element(By.ID, "incident.description")
-        textarea_value = description_element.get_attribute("value")
-        print("Description:", textarea_value)
-        scenario_id_pattern = r"SCENARIO_ID\s*=\s*(\d+)"
-        match = re.search(scenario_id_pattern, textarea_value)
-
-        if match:
-            scenario_id = match.group(1)
-            print(f"Found SCENARIO_ID: {scenario_id}")
-        else:
-            print("No SCENARIO_ID found in the description.")
-            script = """
-            var scenarioId = prompt("Please enter the SCENARIO_ID:");
-            return scenarioId;
-            """
-            scenario_id = driver.execute_script(script)
-            time.sleep(5)
-
-            print(f"Scenario ID from prompt: {scenario_id}, type: {type(scenario_id)}")
-
-            if scenario_id:
-                scenario_id = str(scenario_id).strip()
-                print(f"User provided SCENARIO_ID (after strip): {scenario_id}")
-                if scenario_id:
-                    table1_data, table2_data = execute_sql_query(scenario_id)
-                    if len(table1_data[0]) >= 1:
-                        save_to_excel(table1_data, "table1_data.xlsx")
-                        subject = "Table1 Data"
-                        body = "Please find the attached file containing Table1 data."
-                        to = "Shubhamsunil.Payghan@aig.com"
-                        attachment_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\table1_data.xlsx"
-                        send_email_with_attachment(subject, body, to, attachment_path)
-                else:
-                    print("Scenario ID was only whitespace, therefore invalid.")
-            else:
-                print("User did not provide a SCENARIO_ID.")
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        table1_data, table2_data = [], []
-    finally:
-        driver.quit()
-        if len(table1_data[0]) == 0:
-            print("table data is empty")
-            table1_data.pop()
-            table1_data.append({
-                "GEARID": "5219",
-                "FilteredDiagnosticSOPID": "NA",
-                "Boundarycond1": "NA",
-                "Statevar1": "NA",
-                "Boundarycond2": "NA",
-                "Statevar2": "NA",
-                "Boundarycond3": "NA",
-                "Statevar3": "NA",
-                "Boundarycond4": "NA",
-                "Statevar4": "NA",
-                "Boundarycond5": "NA",
-                "Statevar5": "NA",
-                "Boundarycond6": "NA",
-                "Statevar6": "NA",
-                "Boundarycond7": "NA",
-                "Statevar7": "NA",
-                "ResolutionSOPID": "Assign to L2"
-            })
-            save_to_excel(table1_data, "table1_data.xlsx")
-            subject = "Table1 Data"
-            body = "Please find the attached file containing Table1 data."
-            to = "Shubhamsunil.Payghan@aig.com"
-            attachment_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\table1_data.xlsx"
-            send_email_with_attachment(subject, body, to, attachment_path)
-        return table1_data, table2_data
+   try:
+       incident_number = data["incidentNo"]
+       options = Options()
+       options.add_argument("--window-size=1920,1080")
+       driver = webdriver.Chrome(options=options)
+       driver.maximize_window()
+       url = f"https://aig.service-now.com/nav_to.do?uri=%2Fincident.do%3Fsysparm_query%3Dnumber%3D{incident_number}"
+       driver.get(url)
+       time.sleep(10)
+       print(f"Navigated to incident number: {incident_number}")
+       WebDriverWait(driver, 80).until(
+           EC.presence_of_element_located((By.ID, "gsft_main"))
+       )
+       driver.switch_to.frame("gsft_main")  
+       print("found")
+       WebDriverWait(driver, 80).until(
+           EC.presence_of_element_located((By.ID, "incident.description"))
+       )
+       description_element = driver.find_element(By.ID, "incident.description")
+       textarea_value = description_element.get_attribute("value")
+       print("Description:", textarea_value)
+       scenario_id_pattern = r"SCENARIO_ID\s*=\s*(\d+)"
+       match = re.search(scenario_id_pattern, textarea_value)
+       if match:
+           scenario_id = match.group(1)
+           print(f"Found SCENARIO_ID: {scenario_id}")
+           table1_data, table2_data = execute_sql_query(scenario_id)
+       else:
+           print("No SCENARIO_ID found in the description.")
+           # Use JavaScript to create a popup on the application UI
+           scenario_id = create_js_popup(driver, "SCENARIO_ID not found. Please enter the SCENARIO_ID:")
+           if scenario_id:
+               print(f"User provided SCENARIO_ID: {scenario_id}")
+               table1_data, table2_data = execute_sql_query(scenario_id)
+           else:
+               print("No SCENARIO_ID provided by the user.")
+               table1_data, table2_data = [], []
+       # Save table1_data to an Excel file
+       if table1_data and len(table1_data[0]) >= 1:
+           save_to_excel(table1_data, "table1_data.xlsx")
+           # Send the Excel file via email
+           subject = "Table1 Data"
+           body = "Please find the attached file containing Table1 data."
+           to = "Shubhamsunil.Payghan@aig.com"
+           attachment_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\table1_data.xlsx"
+           send_email_with_attachment(subject, body, to, attachment_path)
+   except Exception as e:
+       print(f"An error occurred: {e}")
+       table1_data, table2_data = [], []
+   finally:
+       driver.quit()
+       if not table1_data or len(table1_data[0]) == 0:
+           print("table data is empty")
+           table1_data = [{
+              "GEARID": "5219",
+              "FilteredDiagnosticSOPID": "NA",
+              "Boundarycond1": "NA",
+              "Statevar1": "NA",
+              "Boundarycond2": "NA",
+              "Statevar2": "NA",
+              "Boundarycond3": "NA",
+              "Statevar3": "NA",
+              "Boundarycond4": "NA",
+              "Statevar4": "NA",
+              "Boundarycond5": "NA",
+              "Statevar5": "NA",
+              "Boundarycond6": "NA",
+              "Statevar6": "NA",
+              "Boundarycond7": "NA",
+              "Statevar7": "NA",
+              "ResolutionSOPID": "Assign to L2"
+           }]
+           save_to_excel(table1_data, "table1_data.xlsx")
+           # Send the Excel file via email
+           subject = "Table1 Data"
+           body = "Please find the attached file containing Table1 data."
+           to = "Shubhamsunil.Payghan@aig.com"
+           attachment_path = r"C:\Users\maahmad\MAAZ\React\React\myapp\build\table1_data.xlsx"
+           send_email_with_attachment(subject, body, to, attachment_path)
+       return table1_data, table2_data
+# Rest of the functions (execute_sql_query, execute_oracle_query, update_mongodb, save_to_excel, send_email_with_attachment) remain unchanged.
