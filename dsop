@@ -474,3 +474,17 @@ def send_email_with_attachment(subject, body, to, attachment_path):
    # Send the email
    mail.Send()
    print(f"Email sent to {to} with attachment {attachment_path}")
+
+
+ else:
+            print("No SCENARIO_ID found in the description.")
+            # Inject JavaScript to create a popup and capture user input
+            while True:
+                script = """
+                var scenarioId = prompt("Please enter the SCENARIO_ID:");
+                return scenarioId;
+                """
+                scenario_id = driver.execute_script(script)
+                if scenario_id:
+                    break
+            print(f"User provided SCENARIO_ID: {scenario_id}")
